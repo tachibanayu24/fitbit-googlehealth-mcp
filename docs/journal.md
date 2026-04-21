@@ -55,3 +55,31 @@
 - Zod は v3.25 系を採用。SDK 内部は `zod/v4` だが標準 `zod` path では v3 後方互換で問題ない(SDK >= 1.17.5 の報告)。必要になれば v4 へ上げる。
 - Wrangler v4 で KV の `preview_id` は不要。dev 時のローカル KV は自動でモックされる。本番 deploy 前に `wrangler kv:namespace create` で実 id を入れる。
 - Biome 2.x では `files.ignore` → `files.includes` 配列に否定パターン(`"!node_modules"` 等)を入れる書式に変わっている。
+
+---
+
+## 2026-04-22 / セキュリティ層(SECRET + CIDR allowlist)
+
+`src/auth/guard.ts` に実装。純粋関数 `verifyAccess(input)` + Hono 向けの `guardMiddleware()` を分離して、テスト容易性を担保。
+
+### 設計メモ
+- IPv4 を 32bit 整数に畳んで CIDR 比較。IPv6 は allowlist 対象外(Anthropic の公表 outbound は IPv4 `160.79.104.0/21` のみなので実害なし)
+- `parseCidrList` は `ALLOWED_CIDRS` env を comma-separated で複数対応。将来 Anthropic が追加 CIDR を出した際に env 更新だけで追随できる
+- SECRET 比較は `timingSafeEqual` で定数時間(文字列長が一致しない場合だけ早期 return、その後は常に全文字走査)
+- 失敗時の reason 文字列は 5 種類(`missing_secret` / `secret_mismatch` / `missing_client_ip` / `no_cidr_configured` / `ip_not_allowed`)。401 / 403 に分けて返す
+
+### テスト結果
+`test/auth/guard.test.ts` に 17 ケース(`ipv4ToInt` の malformed 拒否、`isIpv4InCidr` で /0 と /32、`parseCidrList`、`timingSafeEqual`、`verifyAccess` の 8 パス)。全て緑。
+
+### 実機での気づき
+`wrangler dev` 下で curl すると、**Wrangler がローカルリクエストに自動で `CF-Connecting-IP` ヘッダを注入してくる**。ヘッダ未指定 curl でも `missing_client_ip` ではなく `ip_not_allowed` が返った(127.0.0.1 が埋められていた)。本番の Cloudflare エッジでも必ずこのヘッダが入るので実害はないが、「ヘッダが無い時の経路」は純粋関数テストでしかカバーできない、と実感。
+
+### 挙動確認
+.dev.vars に `MCP_SHARED_SECRET=test-secret-abc` を置いて `wrangler dev`、4 パターン curl:
+
+| シナリオ | 結果 |
+|---|---|
+| 間違った secret | 401 `secret_mismatch` ✓ |
+| 正 secret + IP ヘッダ無し | 403 `ip_not_allowed` ✓(ローカルでは Wrangler が 127.0.0.1 を埋める) |
+| 正 secret + CIDR 外 IP(1.2.3.4) | 403 `ip_not_allowed` ✓ |
+| 正 secret + CIDR 内 IP(160.79.104.5) | 501 `mcp_transport_not_yet_wired` ✓(guard 通過の合図、MCP 本体は次以降のマイルストーン) |
