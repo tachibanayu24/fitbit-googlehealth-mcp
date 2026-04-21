@@ -31,10 +31,13 @@ import type {
   WeightLog,
 } from '../types';
 import { getActivityTimeSeries, getDailySummary, getExerciseList } from './activity';
+import { getBodyLog } from './body';
 import { FitbitClient } from './client';
 import { listDevices } from './device';
 import { getHeartRateIntraday, getHeartRateRange } from './heart';
+import { getFoodLog } from './nutrition';
 import { getProfile } from './profile';
+import { getSleep, getSleepRange } from './sleep';
 
 /**
  * FitbitProvider — implements HealthProvider against the 2026-era
@@ -84,17 +87,17 @@ export class FitbitProvider implements HealthProvider {
   }
 
   // ---------- Read: sleep / body / nutrition ----------
-  getSleep(_date: string): Promise<SleepLog[]> {
-    return Promise.reject(new Error('not_implemented: getSleep'));
+  getSleep(date: string): Promise<SleepLog[]> {
+    return getSleep(this.client, date);
   }
-  getSleepRange(_start: string, _end: string): Promise<SleepLog[]> {
-    return Promise.reject(new Error('not_implemented: getSleepRange'));
+  getSleepRange(start: string, end: string): Promise<SleepLog[]> {
+    return getSleepRange(this.client, start, end);
   }
-  getBodyLog(_start: string, _end: string): Promise<BodyLog> {
-    return Promise.reject(new Error('not_implemented: getBodyLog'));
+  getBodyLog(start: string, end: string): Promise<BodyLog> {
+    return getBodyLog(this.client, start, end);
   }
-  getFoodLog(_date: string): Promise<FoodLog> {
-    return Promise.reject(new Error('not_implemented: getFoodLog'));
+  getFoodLog(date: string): Promise<FoodLog> {
+    return getFoodLog(this.client, date);
   }
 
   // ---------- Read: metrics ----------
