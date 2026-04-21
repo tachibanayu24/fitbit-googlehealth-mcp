@@ -1,6 +1,8 @@
+import { StreamableHTTPTransport } from '@hono/mcp';
 import { Hono } from 'hono';
 import { guardMiddleware } from './auth/guard';
 import type { Env } from './env';
+import { buildServer } from './server';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -14,11 +16,12 @@ app.get('/health', (c) =>
   }),
 );
 
-app.post('/mcp/:secret', guardMiddleware(), (c) => {
-  // The MCP Streamable HTTP transport body is wired in a later milestone
-  // (after OAuth bootstrap + Fitbit client + tool registration). Until then
-  // we respond 501 so guard-only traffic is still observable.
-  return c.text('mcp_transport_not_yet_wired', 501);
+app.post('/mcp/:secret', guardMiddleware(), async (c) => {
+  const server = buildServer(c.env);
+  const transport = new StreamableHTTPTransport();
+  await server.connect(transport);
+  const response = await transport.handleRequest(c);
+  return response ?? c.text('', 200);
 });
 
 export default app;

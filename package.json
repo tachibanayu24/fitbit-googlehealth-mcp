@@ -20,6 +20,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@hono/mcp": "^0.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "hono": "^4.7.0",
     "zod": "^3.25.0"

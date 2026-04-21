@@ -190,3 +190,36 @@ Provider 層は stateless で Fitbit を直叩きするだけ。Cache / invalida
 4. `feat(fitbit): metrics (SpO2 / BR / skin temp / HRV / cardio fitness)` — +5
 
 計 16 reads 完成。残りは tool 層(M7)と write 層(M8)と metrics 系のツール(M7 内)。
+
+---
+
+## 2026-04-22 / MCP Streamable HTTP 接続と最初の 2 tool
+
+### @hono/mcp 採用
+Cloudflare Workers + Hono 構成で MCP の Streamable HTTP transport を扱うため、`@hono/mcp@^0.2`(Hono 公式拡張)を追加。`StreamableHTTPTransport` class が提供されていて、Hono の `Context` を直接受ける `handleRequest(c)` がある。自前で Fetch API ↔ Node `IncomingMessage` adapter を書かずに済む。
+
+```ts
+app.post('/mcp/:secret', guardMiddleware(), async (c) => {
+  const server = buildServer(c.env);
+  const transport = new StreamableHTTPTransport();
+  await server.connect(transport);
+  const response = await transport.handleRequest(c);
+  return response ?? c.text('', 200);
+});
+```
+
+### 実機確認
+curl で initialize を投げて `{"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"fitbit-logger-mcp","version":"0.1.0"}}}` が SSE stream で返る。
+
+続けて `tools/list` を叩くと:
+- `get_profile`(inputSchema 空、outputSchema に Profile の JSON Schema)
+- `list_devices`(outputSchema に devices array)
+
+の 2 ツールが list される。stateless モード(`Mcp-Session-Id` なし)で動作。
+
+### 設計ポイント
+- `src/server.ts` の `buildServer(env)` がリクエスト毎に新しい McpServer を返す。Cloudflare Workers の 1 request = 1 Worker instance モデルに素直
+- `src/tools/index.ts` の `registerAllTools` で全 tool を束ねる。1 tool = 1 ファイル、カテゴリディレクトリで整理(`tools/read/...`, `tools/write/...`)
+- Cache は tool 層で `getCached(env, cacheKey('get_profile'), () => provider.getProfile())` の形で挟む。provider は stateless のまま
+- Output は `structuredContent` + `content: [{type:'text', text: JSON.stringify(...)}]` の両方。2025-06-18 spec の推奨
+- Zod の `ProfileSchema.shape` を outputSchema にそのまま渡す(SDK が JSON Schema に変換して tools/list にも expose)
