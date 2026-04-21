@@ -233,3 +233,48 @@ get_exercise_list / get_heart_rate_range / get_heart_rate_intraday /
 get_sleep / get_sleep_range / get_body_log / get_food_log / get_spo2 /
 get_respiratory_rate / get_skin_temperature / get_hrv / get_cardio_fitness
 ```
+
+---
+
+## 2026-04-22 / Fitbit Write + Write ツール 8 個(M8 + M9)
+
+`FitbitProvider` の 8 write メソッドを実装 → tool 層の 8 write ツールを登録。
+
+### Fitbit Write API(全て form-urlencoded body)
+- `POST /1/user/-/foods/log.json` — `foodName` + `calories` + `mealTypeId`(1=B/2=MS/3=L/4=AS/5=D/7=Anytime)+ `nutritionalValues.<key>`
+- `POST /1/user/-/foods/log/water.json?date&amount&unit=ml`
+- `DELETE /1/user/-/foods/log/{logId}.json`
+- `POST /1/user/-/body/log/weight.json` — date, weight(kg), time?
+- `POST /1/user/-/body/log/fat.json` — date, fat(%)
+- `POST /1/user/-/activities.json` — activityId or activityName + manualCalories、startTime(HH:mm:ss)、durationMillis、date、distance?
+- `POST /1.2/user/-/sleep.json` — startTime(HH:mm)、duration(ms)、date
+
+### MCP tool の目玉: `log_meal_photo`
+input:
+- `mealType`: Breakfast / MorningSnack / Lunch / AfternoonSnack / Dinner / Anytime
+- `items[]`: `{name, estimatedGrams?, calories, protein?, carbs?, fat?, confidence?}`
+- `date?`: JST デフォルト
+- `notes?`
+
+description は Claude への挙動指示を明示:
+- 写真解析「後」に 1 回呼ぶ
+- 複数 item を sequential で書き込む(partial failure を可視化、150/h ceiling を突き抜けない)
+- 日本語の name OK、confidence で sanity check を促す
+- 後悔したら `delete_food_log(logId)` で巻き戻せる
+
+### Cache invalidation
+Write 成功時に関連 read の KV cache を自動 invalidate:
+- log_food / log_meal_photo / log_water / delete_food_log → `get_food_log:date` + `get_daily_summary:date`
+- log_weight → `get_daily_summary:date`
+- log_activity → `get_daily_summary:date` + `get_exercise_list:beforeDate=date`
+- log_sleep → `get_sleep:date`
+
+range cache(body/heart/sleep/hrv/spo2 の start-end 指定)は TTL 1h で自然失効に任せる(厳密 invalidate には index が必要で overkill)。
+
+### 実機確認
+`wrangler dev` 下で `tools/list` が 24 tools を返すことを確認:
+- **Read 16**: activity_timeseries / body_log / cardio_fitness / daily_summary / exercise_list / food_log / heart_rate_intraday / heart_rate_range / hrv / profile / respiratory_rate / skin_temperature / sleep / sleep_range / spo2 / list_devices
+- **Write 8**: delete_food_log / log_activity / log_body_fat / log_food / log_meal_photo / log_sleep / log_water / log_weight
+
+### 注意
+`log_activity` の input で、`activityId` か `activityName + manualCalories` のどちらか必須。`activityName` + `manualCalories` 欠落時は RangeError を返す client-side validation を入れた。

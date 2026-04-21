@@ -9,6 +9,10 @@ import { registerMetricsReadTools } from './read/metrics';
 import { registerNutritionReadTools } from './read/nutrition';
 import { registerProfileTool } from './read/profile';
 import { registerSleepReadTools } from './read/sleep';
+import { registerActivityWriteTool } from './write/activity';
+import { registerBodyWriteTools } from './write/body';
+import { registerFoodWriteTools } from './write/food';
+import { registerSleepWriteTool } from './write/sleep';
 
 export function registerAllTools(server: McpServer, provider: HealthProvider, env: Env): void {
   // ---- Read (16) ----
@@ -21,5 +25,9 @@ export function registerAllTools(server: McpServer, provider: HealthProvider, en
   registerNutritionReadTools(server, provider, env);
   registerMetricsReadTools(server, provider, env);
 
-  // Write tools land in M8.
+  // ---- Write (8) ----
+  registerFoodWriteTools(server, provider, env);
+  registerBodyWriteTools(server, provider, env);
+  registerActivityWriteTool(server, provider, env);
+  registerSleepWriteTool(server, provider, env);
 }
