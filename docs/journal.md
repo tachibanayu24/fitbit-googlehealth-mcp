@@ -302,3 +302,40 @@ Provider 抽象を最初から組み込んでいるのに、リポ名が Fitbit 
 
 ### 設計メモ
 過去の journal entry の中で `serverInfo.name` の実値を `"fitbit-logger-mcp"` として引用している箇所があるが、これは当時の実測値なのでそのまま残した(置換すると履歴として嘘になる)。今後の entry では新しい name を使う。
+
+---
+
+## 2026-04-22 / Intraday HR の部分欠落は Fitbit 側の仕様(MCP では直せない)
+
+本番投入直後にユーザーが read-tool 全 16 個を叩いたところ、`get_heart_rate_intraday` が **ゾーンサマリは返るのに `points` は空(または部分的)** という挙動を示した。
+
+最初は「Personal App の Intraday scope が有効化されてない」説を疑ったが、access_token を decode して scope に `rhr` が入っていることを確認。dev.fitbit.com 側にも「Intraday Access」的な switch は存在せず。
+
+### 切り分け
+
+診断目的で `getHeartRateIntraday` に `console.log(body.slice(0, 2000))` を仕込み、`wrangler tail --format json` で Fitbit の生 body を収集。4 日分の `tools/call` 実測:
+
+| 日付 | 当日の運動ログ | Fitbit 生 body | intraday dataset 点数 |
+|---|---|---|---|
+| 4/19 | なし | 6699 B | 88(00:00〜21:45) |
+| 4/20 | あり(18:38, 21:35) | 2528 B | 23(18:15〜23:45) |
+| 4/21 | あり(12:36, 15:54) | 900 B | **0(`activities-heart-intraday` キー自体なし)** |
+| 4/22 | なし(執筆時点) | 2928 B | 30(00:00〜07:15) |
+
+**Fitbit のレスポンス body そのものに当該時間帯が入っていない**。MCP 側は `dataset` → `points` の単純写しで、運動ログ参照もフィルタ処理もしていない(`get_heart_rate_intraday` ハンドラ内の他 API 呼び出しゼロを tail の `logs: []` で確認)。
+
+### 結論
+
+「**運動ログがある日ほど intraday の dataset が少なくなる**」という再現性のある傾向。`heartRateZones.minutes` の合計は全日 1440 分(= 24h 分)で埋まっているので、Fitbit は**ゾーン集計は持っているが intraday 生点は運動時間帯で pruning している**と考えられる。運動中の高頻度 HR 測定が exercise log の資産として別途扱われ、`activities-heart-intraday` からは落とされる、という推測。
+
+Fitbit 側の仕様なので MCP では治せない。`get_heart_rate_intraday` の description に「運動ログのある日は Fitbit が intraday を部分〜全欠落で返すことがある。`restingHeartRate` と `heartRateZones` は信頼できる。intraday が空なら `get_heart_rate_range` にフォールバックを」と追記して、診断用 `console.log` は撤去。
+
+### 付随して見つかった別バグ 2 つ
+
+同じテストパスで:
+
+- `get_daily_summary` が `sedentaryMinutes: -93`、`Out of Range` ゾーンの `caloriesOut: 648235`(= 64 万 kcal) を返す日があった。当日取得 + Fitbit の集計未確定タイミングで起きる外れ値で、スキーマ的には `z.coerce.number()` なのでエラーにはならないが、LLM に解釈させるときに危ない。description に「当日の JST 日付は集計未確定なので負の sedentary や異常 caloriesOut が出る可能性あり、トレンド分析には前日以前を使う」と明記。
+- `get_food_log` の description に `calorie goal` が含まれるが、食事を記録していない日は Fitbit が `goals` フィールドを省略する。「goals は食事が無い日は省略されることあり」と注記。
+
+### 付随:Claude 画面の `<system><functions>…</functions></system>` ダンプ
+ユーザーからレポート有り。MCP サーバーからは送っていない(`content` に text/structuredContent しか入れていない)ので、Claude クライアント側が `tools/list` で取った outputSchema/inputSchema を可視化していると思われる。実害なし。
