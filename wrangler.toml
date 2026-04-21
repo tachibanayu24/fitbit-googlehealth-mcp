@@ -16,11 +16,11 @@ ALLOWED_CIDRS = "160.79.104.0/21"
 
 [[kv_namespaces]]
 binding = "TOKENS"
-id = "local-tokens-placeholder"
+id = "badca286ba87486491a39ca5702d0a1a"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "local-cache-placeholder"
+id = "cba6bf607b654ff29c874fbaf96cbf88"
 
 # Secrets (never committed) are set via:
 #   pnpm wrangler secret put FITBIT_CLIENT_ID

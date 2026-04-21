@@ -23,9 +23,13 @@ export class FitbitClient {
     const body = await this.requestText(req);
     const parsed = schema.safeParse(JSON.parse(body));
     if (!parsed.success) {
+      // Include a slice of the raw body so future schema mismatches are
+      // diagnosable from the MCP tool error alone (wrangler tail doesn't
+      // surface console logs from inside the Worker in pretty mode).
+      const rawPreview = body.length > 500 ? `${body.slice(0, 500)}…` : body;
       throw new FitbitApiError(
         200,
-        `Schema validation failed at ${req.path}: ${parsed.error.message}`,
+        `Schema validation failed at ${req.path}: ${parsed.error.message}\nRaw body preview: ${rawPreview}`,
         req.path,
       );
     }

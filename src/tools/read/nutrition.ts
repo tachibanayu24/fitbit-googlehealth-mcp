@@ -17,7 +17,7 @@ export function registerNutritionReadTools(
     {
       title: 'Food log for one day',
       description:
-        'Meals and water intake for the day: foods array, nutrition summary (calories/carbs/fat/fiber/protein/sodium/sugar), water total, and calorie goal. Defaults to today (JST). Cached 1h.',
+        'Meals and water intake for the day: foods array, nutrition summary (calories/carbs/fat/fiber/protein/sodium/sugar), water total, and—when Fitbit has set one—a calorie goal. The `goals` field is omitted on days with no food entries. Defaults to today (JST). Cached 1h.',
       inputSchema: {
         date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
       },

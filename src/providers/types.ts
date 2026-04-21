@@ -48,31 +48,36 @@ export const HeartRateZoneSchema = z.object({
 export type HeartRateZone = z.infer<typeof HeartRateZoneSchema>;
 
 // ---------- Daily activity summary ----------
+// Fitbit occasionally returns numeric fields as strings here (observed:
+// sedentaryMinutes = "1440" on days with no activity). Use coerce to
+// accept both shapes while keeping the typed output as number.
+const NumOpt = z.coerce.number().optional();
+
 export const DailySummarySchema = z.object({
   goals: z
     .object({
-      activeMinutes: z.number().optional(),
-      caloriesOut: z.number().optional(),
-      distance: z.number().optional(),
-      steps: z.number().optional(),
-      floors: z.number().optional(),
+      activeMinutes: NumOpt,
+      caloriesOut: NumOpt,
+      distance: NumOpt,
+      steps: NumOpt,
+      floors: NumOpt,
     })
     .optional(),
   summary: z.object({
-    steps: z.number().optional(),
-    caloriesOut: z.number().optional(),
-    caloriesBMR: z.number().optional(),
-    activityCalories: z.number().optional(),
-    distances: z.array(z.object({ activity: z.string(), distance: z.number() })).optional(),
-    elevation: z.number().optional(),
-    floors: z.number().optional(),
-    fairlyActiveMinutes: z.number().optional(),
-    lightlyActiveMinutes: z.number().optional(),
-    sedentaryMinutes: z.number().optional(),
-    veryActiveMinutes: z.number().optional(),
-    restingHeartRate: z.number().optional(),
+    steps: NumOpt,
+    caloriesOut: NumOpt,
+    caloriesBMR: NumOpt,
+    activityCalories: NumOpt,
+    distances: z.array(z.object({ activity: z.string(), distance: z.coerce.number() })).optional(),
+    elevation: NumOpt,
+    floors: NumOpt,
+    fairlyActiveMinutes: NumOpt,
+    lightlyActiveMinutes: NumOpt,
+    sedentaryMinutes: NumOpt,
+    veryActiveMinutes: NumOpt,
+    restingHeartRate: NumOpt,
     heartRateZones: z.array(HeartRateZoneSchema).optional(),
-    marginalCalories: z.number().optional(),
+    marginalCalories: NumOpt,
   }),
 });
 export type DailySummary = z.infer<typeof DailySummarySchema>;

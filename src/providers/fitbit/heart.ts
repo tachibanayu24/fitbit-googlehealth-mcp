@@ -20,11 +20,16 @@ export async function getHeartRateRange(
 
 const HeartRateIntradayResponseSchema = z.object({
   'activities-heart': z.array(HeartRateDaySchema).optional(),
-  'activities-heart-intraday': z.object({
-    dataset: z.array(HeartRateIntradayPointSchema),
-    datasetInterval: z.number().optional(),
-    datasetType: z.string().optional(),
-  }),
+  // Fitbit sometimes omits the intraday block entirely (observed for Charge 6
+  // on days with sparse coverage). Treat as optional and fall back to an
+  // empty points array so callers can reason about it uniformly.
+  'activities-heart-intraday': z
+    .object({
+      dataset: z.array(HeartRateIntradayPointSchema),
+      datasetInterval: z.number().optional(),
+      datasetType: z.string().optional(),
+    })
+    .optional(),
 });
 
 export async function getHeartRateIntraday(
@@ -36,11 +41,12 @@ export async function getHeartRateIntraday(
     path: `/1/user/-/activities/heart/date/${date}/1d/${detailLevel}.json`,
   });
   const day = response['activities-heart']?.[0];
+  const intraday = response['activities-heart-intraday'];
   return {
     date,
     detailLevel,
     restingHeartRate: day?.value.restingHeartRate,
     heartRateZones: day?.value.heartRateZones,
-    points: response['activities-heart-intraday'].dataset,
+    points: intraday?.dataset ?? [],
   };
 }
