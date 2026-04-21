@@ -150,3 +150,43 @@ env.CACHE  (local-cache-placeholder)    KV Namespace   local
 
 ### まだやらないこと
 `get_profile` 実疎通は、ユーザーの dev.fitbit.com アプリ作成 + `setup:fitbit` 実行 + `wrangler kv:key put` まで揃ってから。Worker 側から Fitbit API を叩く route がまだ /mcp/:secret の 501 スタブしかないので、次マイルストーン(Provider 抽象 + Read 実装)で FitbitProvider を完成させてから MCP ツールとして wire up する。
+
+---
+
+## 2026-04-22 / Provider 抽象と 16 Read メソッド実装
+
+`HealthProvider` interface を `src/providers/types.ts` に置き、`FitbitProvider` に 16 の read メソッドを実装。ファイル構成は Fitbit API のカテゴリに合わせて分割:
+
+| ファイル | 実装したメソッド |
+|---|---|
+| `profile.ts` | `getProfile` |
+| `device.ts` | `listDevices` |
+| `activity.ts` | `getDailySummary` / `getActivityTimeSeries` / `getExerciseList` |
+| `heart.ts` | `getHeartRateRange` / `getHeartRateIntraday` |
+| `sleep.ts` | `getSleep` / `getSleepRange`(v1.2) |
+| `body.ts` | `getBodyLog`(weight + fat を parallel fetch して merge) |
+| `nutrition.ts` | `getFoodLog`(Search Foods は意図的に未公開 → 2025/11 障害回避) |
+| `metrics.ts` | `getSpO2` / `getRespiratoryRate` / `getSkinTemperature` / `getHRV` / `getCardioFitness` |
+
+### Fitbit レスポンスの癖
+- **Activity Time Series** は `activities-<resource>` の動的キー。`z.record` で受けて key を組み立てて抽出
+- **Heart Rate Range/Intraday** は `activities-heart` と `activities-heart-intraday` に二重階層。intraday の戻り値はフラットな `HeartRateIntraday` shape に畳んだ(`{date, detailLevel, restingHeartRate, heartRateZones, points[]}`)
+- **Sleep v1.2** は `{sleep: SleepLog[]}`、`levels.data` / `levels.shortData` の stage データは保持(LLM が深さ分析できる)
+- **Body** は weight と fat で別エンドポイント → Promise.all で並列
+- **SpO2 range** だけ top-level 配列。他(`br` / `tempSkin` / `hrv` / `cardioScore`)は outer key でラップされている
+- **Cardio Fitness** は `cardioScore[0].value.vo2Max` が string(「45-49」)か number。zod は `z.union` で両対応
+
+### Provider 抽象の割り切り
+- 戻り値型は Fitbit 形式の zod.infer をそのまま expose(Profile, SleepLog 等)
+- Google Health 実装時は、Google Health API の JSON → この同じ shape に adapt する方針。どうしても収まらない場合だけ interface を「意味 unit」に書き直す
+
+### Cache はまだ挟まない
+Provider 層は stateless で Fitbit を直叩きするだけ。Cache / invalidation は tool 層(M7)で `getCached(env, cacheKey('get_food_log', {date}))` の形で挟む予定。
+
+### 全 4 コミットの分割
+1. `feat(providers): HealthProvider interface + FitbitProvider skeleton` — 全 stub
+2. `feat(fitbit): activity + heart-rate reads` — +5
+3. `feat(fitbit): sleep, body, and food-log reads` — +4
+4. `feat(fitbit): metrics (SpO2 / BR / skin temp / HRV / cardio fitness)` — +5
+
+計 16 reads 完成。残りは tool 層(M7)と write 層(M8)と metrics 系のツール(M7 内)。

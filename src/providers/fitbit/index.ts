@@ -35,6 +35,13 @@ import { getBodyLog } from './body';
 import { FitbitClient } from './client';
 import { listDevices } from './device';
 import { getHeartRateIntraday, getHeartRateRange } from './heart';
+import {
+  getCardioFitness,
+  getHRV,
+  getRespiratoryRate,
+  getSkinTemperature,
+  getSpO2,
+} from './metrics';
 import { getFoodLog } from './nutrition';
 import { getProfile } from './profile';
 import { getSleep, getSleepRange } from './sleep';
@@ -101,20 +108,20 @@ export class FitbitProvider implements HealthProvider {
   }
 
   // ---------- Read: metrics ----------
-  getSpO2(_start: string, _end: string): Promise<SpO2Day[]> {
-    return Promise.reject(new Error('not_implemented: getSpO2'));
+  getSpO2(start: string, end: string): Promise<SpO2Day[]> {
+    return getSpO2(this.client, start, end);
   }
-  getRespiratoryRate(_start: string, _end: string): Promise<RespiratoryRateDay[]> {
-    return Promise.reject(new Error('not_implemented: getRespiratoryRate'));
+  getRespiratoryRate(start: string, end: string): Promise<RespiratoryRateDay[]> {
+    return getRespiratoryRate(this.client, start, end);
   }
-  getSkinTemperature(_start: string, _end: string): Promise<SkinTempDay[]> {
-    return Promise.reject(new Error('not_implemented: getSkinTemperature'));
+  getSkinTemperature(start: string, end: string): Promise<SkinTempDay[]> {
+    return getSkinTemperature(this.client, start, end);
   }
-  getHRV(_start: string, _end: string): Promise<HrvDay[]> {
-    return Promise.reject(new Error('not_implemented: getHRV'));
+  getHRV(start: string, end: string): Promise<HrvDay[]> {
+    return getHRV(this.client, start, end);
   }
-  getCardioFitness(_date: string): Promise<CardioFitness> {
-    return Promise.reject(new Error('not_implemented: getCardioFitness'));
+  getCardioFitness(date: string): Promise<CardioFitness> {
+    return getCardioFitness(this.client, date);
   }
 
   // ---------- Write (implemented in M7) ----------
