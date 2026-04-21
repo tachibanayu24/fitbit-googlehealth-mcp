@@ -132,20 +132,41 @@ pnpm deploy
 | `get_hrv` | `start, end` | HRV(RMSSD) |
 | `get_cardio_fitness` | `date?` | Cardio Fitness Score(VO2 Max) |
 
-### Write(8)
+### Write(7)
 
 | Tool | 引数 | 概要 |
 |---|---|---|
-| `log_food` | `foodName, calories, mealType, date?, nutritionalValues?` | 食事を 1 件記録(日本語 OK) |
+| `log_food` | `foodName, calories, mealType, date?, nutritionalValues?` | 食事を 1 件記録(日本語 OK、PFC 保持) |
 | `log_meal_photo` | `mealType, items[], date?, notes?` | **写真解析結果を一括で記録**(Claude が視覚解析 → items を渡す前提) |
 | `log_water` | `amountMl, date?` | 水分(ml) |
 | `log_weight` | `weightKg, date?, time?` | 体重 |
 | `log_body_fat` | `fatPercent, date?, time?` | 体脂肪率 |
 | `log_activity` | `activityId or activityName+manualCalories, startTime, durationMs, date?, distanceKm?` | 手動で運動ログ |
 | `log_sleep` | `startTime, durationMs, date?` | 手動で睡眠ログ |
-| `delete_food_log` | `logId, date?` | 食事エントリ削除 |
 
-全 tool は `date?` 省略時 **JST の今日** にフォールバックします。
+### Delete(6)
+
+| Tool | 引数 | 概要 |
+|---|---|---|
+| `delete_food_log` | `logId, date?` | 食事エントリ削除 |
+| `delete_water_log` | `logId, date?` | 水分エントリ削除 |
+| `delete_weight_log` | `logId, date?` | 体重エントリ削除 |
+| `delete_body_fat_log` | `logId` | 体脂肪エントリ削除 |
+| `delete_activity_log` | `logId, date?` | 運動ログ削除 |
+| `delete_sleep_log` | `logId, date?` | 睡眠ログ削除 |
+
+### Meal preset(4)
+
+作り置き用の再利用可能な栄養プロファイルを MCP サーバー側(Workers KV)に保存して、ログ時に栄養素込みで Fitbit へ投入する仕組み。Fitbit の Create Food API は栄養素を保存しない仕様なので、PFC 追跡にはこちらを使う。
+
+| Tool | 引数 | 概要 |
+|---|---|---|
+| `save_meal_preset` | `name, calories, protein?, carbs?, fat?, fiber?, sodium?, sugar?, notes?` | preset を保存(同名で上書き) |
+| `list_meal_presets` | — | 保存済み preset 一覧 |
+| `log_preset` | `name, mealType, date?, amount?` | preset を今日/指定日の食事ログに記録 |
+| `delete_meal_preset` | `name` | preset 削除(既存 log には影響なし) |
+
+全 `date?` は省略時 **JST の今日** にフォールバック。Tool 総数 33(Read 16 + Write 7 + Delete 6 + Preset 4)。
 
 ---
 

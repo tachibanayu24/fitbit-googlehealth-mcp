@@ -172,7 +172,24 @@ Token エンドポイント(`/oauth2/token`)は Server App では `Authorization
 `foodId` と `foodName` の両方指定はエラー。
 
 ### Custom Food と mealTypeId
-Create Food で作ったカスタム食品は mealTypeId が常に 7(Anytime)として保存される、という記述がドキュメントにある。一方で `foodName` 直接指定では mealType が効くという community 報告もあり、実装時は実機検証が必要。
+Create Food で作ったカスタム食品は mealTypeId が常に 7(Anytime)として保存される、という記述がドキュメントにある。**2026/04 の実機検証では `foodId` モードでも `mealTypeId: 1` (Breakfast) が保存されて強制は起きなかった**。docs の該当記述は現在の API では古い情報の可能性が高い。
+
+### 実測されたパラメータ仕様(2026/04)
+`scripts/diagnose-food-log.ts` で `POST /1/user/-/foods/log.json` に対し複数パターンを実行した結果:
+
+- `foodName` モードでも **`unitId`(数値)が必須**。`unitName` は無視される。省略すると `400 Missing or invalid food unit id: null`。`304`(serving)を default として常時送信するのが安全
+- 栄養素のキー名は従来 docs の `nutritionalValues.{protein,carbs,fat,...}` では **一切保存されない**。実測で効くのは個別フラットキー:
+  - `protein` (short lowercase)
+  - `totalFat`
+  - `totalCarbohydrate`(← `totalCarbs` や `carbs` は効かない)
+  - `dietaryFiber`
+  - `sodium`
+  - `sugars`(echo に出ないので完全には未確認)
+- 命名が asymmetric で、Fitbit 側で栄養素ごとに別パーサが回っている様子
+- echo(POST レスポンスおよび `get_food_log` の `nutritionalValues`)は常に 6 フィールド固定(`calories, carbs, fat, fiber, protein, sodium`)、sugar は含まれない
+
+### Create Food(カスタム食品作成)は **calories のみ保存**
+`POST /1/user/-/foods.json` に protein/carbs/fat を送っても **silent drop**。以降 `log_food(foodId)` で記録しても `nutritionalValues` は全部 0。PFC を保持したいなら **`foodName` モード**(ないし MCP サーバー側で栄養プロファイルを持つ preset 機構)を使うしかない、が 2026/04 時点の結論。
 
 ### 日本食
 - `GET /1/foods/search.json` は米国英語 DB が最も充実、regional food は弱い

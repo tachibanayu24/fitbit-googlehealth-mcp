@@ -328,55 +328,15 @@ export const CardioFitnessSchema = z.object({
 });
 export type CardioFitness = z.infer<typeof CardioFitnessSchema>;
 
-// ---------- Custom (private) food ----------
-export const CustomFoodSchema = z.object({
-  foodId: z.number(),
-  name: z.string().optional(),
-  brand: z.string().optional(),
-  calories: z.number().optional(),
-  defaultUnit: z
-    .object({
-      id: z.number(),
-      name: z.string().optional(),
-      plural: z.string().optional(),
-    })
-    .optional(),
-  defaultServingSize: z.number().optional(),
-  nutritionalValues: NutritionalValuesSchema.optional(),
-  accessLevel: z.string().optional(),
-});
-export type CustomFood = z.infer<typeof CustomFoodSchema>;
-
-export type CreateCustomFoodInput = {
-  name: string;
-  calories: number;
-  /** Default serving size (e.g. 1 serving). */
-  defaultServingSize?: number;
-  /** Fitbit unit id. 304 = "serving", fixed as default for simplicity. */
-  defaultFoodMeasurementUnitId?: number;
-  formType?: 'LIQUID' | 'DRY';
-  description?: string;
-  brand?: string;
-  nutritionalValues?: NutritionalValues;
-};
-
-// ---------- Write inputs (used by M7) ----------
+// ---------- Write inputs ----------
 export type LogFoodInput = {
   date: string;
   mealType: MealTypeT;
-  /** Exclusive with foodName. Use after create_custom_food. */
-  foodId?: number;
-  /**
-   * Fitbit food-unit id.
-   * - Required when using foodId (copy from create_custom_food.defaultUnit.id).
-   * - Optional when using foodName; defaults to 304 (= "serving") since
-   *   Fitbit's log endpoint rejects a foodName post without a numeric unit.
-   */
-  unitId?: number;
-  /** Exclusive with foodId. Plain-text name. */
-  foodName?: string;
-  /** Required when using foodName. */
-  calories?: number;
+  /** Free-text food name (Japanese OK). Written to Fitbit as a private entry. */
+  foodName: string;
+  /** kcal for the logged portion. */
+  calories: number;
+  /** Portion count. Default 1. */
   amount?: number;
   brand?: string;
   nutritionalValues?: NutritionalValues;
@@ -470,6 +430,4 @@ export interface HealthProvider {
   deleteBodyFatLog(logId: number): Promise<void>;
   deleteActivityLog(logId: number): Promise<void>;
   deleteSleepLog(logId: number): Promise<void>;
-  createCustomFood(input: CreateCustomFoodInput): Promise<CustomFood>;
-  deleteCustomFood(foodId: number): Promise<void>;
 }

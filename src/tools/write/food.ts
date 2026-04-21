@@ -6,7 +6,6 @@ import { assertIsoDate, todayJst } from '../../lib/date';
 import { toolErrorResult } from '../../lib/errors';
 import type { HealthProvider } from '../../providers/types';
 import {
-  CustomFoodSchema,
   FoodLogEntrySchema,
   MealType,
   NutritionalValuesSchema,
@@ -32,45 +31,20 @@ export function registerFoodWriteTools(
     {
       title: 'Log a single food entry',
       description: [
-        'Record one food item. Two modes:',
-        ' (1) foodName + calories + optional unitId (defaults to 304="serving") +',
-        '     optional nutritionalValues — this is the ONLY path that stores',
-        '     protein/carbs/fat in Fitbit. mealType is honoured.',
-        ' (2) foodId + unitId from a prior create_custom_food call. Convenient,',
-        '     but Fitbit silently drops macros on this path (stores calories',
-        '     only). mealType IS honoured. Prefer (1) / log_preset when PFC',
-        '     matters; use (2) only for calorie-only bookkeeping.',
+        'Record one food item in Fitbit with full PFC. Uses a plain-text',
+        "foodName so the entry isn't bound to Fitbit's food DB — Japanese /",
+        'home-cooked / custom foods all work.',
         '',
         'For recurring meals (e.g. 作り置き), prefer save_meal_preset +',
-        'log_preset — they wrap mode (1) so PFC actually lands in Fitbit.',
-        '',
-        'Exactly one of foodName / foodId is required.',
+        'log_preset: you store the PFC profile once on the MCP server and',
+        'recall it by name, which is shorter at call time and avoids',
+        'transcribing macro numbers repeatedly.',
       ].join('\n'),
       inputSchema: {
         date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
         mealType: MealType,
-        foodName: z
-          .string()
-          .describe('Free-text name, e.g. "おにぎり". Exclusive with foodId.')
-          .optional(),
-        calories: z
-          .number()
-          .int()
-          .min(0)
-          .describe('kcal for the logged portion. Required when using foodName.')
-          .optional(),
-        foodId: z
-          .number()
-          .int()
-          .describe('Fitbit foodId from create_custom_food. Exclusive with foodName.')
-          .optional(),
-        unitId: z
-          .number()
-          .int()
-          .describe(
-            'Fitbit numeric food-unit id. Required with foodId (use the defaultUnit.id from create_custom_food). Optional with foodName; defaults to 304 ("serving"). Fitbit rejects foodName posts without a numeric unit id.',
-          )
-          .optional(),
+        foodName: z.string().describe('Free-text food name, e.g. "おにぎり".'),
+        calories: z.number().int().min(0).describe('kcal for the logged portion.'),
         amount: z.number().positive().describe('Portion count. Default 1.').optional(),
         brand: z.string().optional(),
         nutritionalValues: NutritionalValuesSchema.optional(),
@@ -251,96 +225,6 @@ export function registerFoodWriteTools(
         return {
           structuredContent: { deleted: true, logId },
           content: [{ type: 'text', text: `Deleted water log ${logId}.` }],
-        };
-      } catch (err) {
-        return toolErrorResult(err);
-      }
-    },
-  );
-
-  // ---- create_custom_food: register a private food (calories-only) ----
-  server.registerTool(
-    'create_custom_food',
-    {
-      title: 'Create a private custom food (calories-only)',
-      description: [
-        'Register a reusable custom food on Fitbit. Returns foodId + unitId',
-        'you can feed back into log_food (mode 2).',
-        '',
-        "⚠️ Important limitation: Fitbit's Create Food endpoint silently",
-        'drops macros — protein/carbs/fat you submit here are NOT persisted.',
-        'Log entries created via foodId also come back with PFC=0. This makes',
-        'this path unsuitable for PFC tracking.',
-        '',
-        'Use **save_meal_preset + log_preset** instead if you care about',
-        'protein/carbs/fat for home-cooked batches. This tool is still useful',
-        "when you just want the food name to appear in Fitbit's in-app",
-        '"Recent Foods" list or for calorie-only bookkeeping.',
-        '',
-        'mealType is honoured when logging with the returned foodId (verified',
-        'empirically — older docs claiming Anytime-forced appear stale).',
-      ].join('\n'),
-      inputSchema: {
-        name: z.string().describe('Display name, e.g. "自家製キーマカレー".'),
-        calories: z
-          .number()
-          .int()
-          .min(0)
-          .describe('kcal PER default serving (defaultServingSize below).'),
-        defaultServingSize: z
-          .number()
-          .positive()
-          .describe('Portion count the calories/macros correspond to. Default 1.')
-          .optional(),
-        formType: z.enum(['LIQUID', 'DRY']).describe('Optional. Default DRY.').optional(),
-        description: z.string().optional(),
-        brand: z.string().optional(),
-        nutritionalValues: NutritionalValuesSchema.optional(),
-      },
-      outputSchema: CustomFoodSchema.shape,
-    },
-    async (input) => {
-      try {
-        const food = await provider.createCustomFood(input);
-        return {
-          structuredContent: food,
-          content: [
-            {
-              type: 'text',
-              text: [
-                `Created custom food "${input.name}".`,
-                `foodId: ${food.foodId}`,
-                `unitId: ${food.defaultUnit?.id ?? 'n/a'}`,
-                '',
-                JSON.stringify(food, null, 2),
-              ].join('\n'),
-            },
-          ],
-        };
-      } catch (err) {
-        return toolErrorResult(err);
-      }
-    },
-  );
-
-  // ---- delete_custom_food: remove a previously created custom food ----
-  server.registerTool(
-    'delete_custom_food',
-    {
-      title: 'Delete a private custom food',
-      description:
-        'Remove a custom food previously created via create_custom_food. Existing food-log entries that referenced this foodId are NOT deleted — use delete_food_log for those.',
-      inputSchema: {
-        foodId: z.number().int().describe('foodId from create_custom_food.'),
-      },
-      outputSchema: { deleted: z.boolean(), foodId: z.number() },
-    },
-    async ({ foodId }) => {
-      try {
-        await provider.deleteCustomFood(foodId);
-        return {
-          structuredContent: { deleted: true, foodId },
-          content: [{ type: 'text', text: `Deleted custom food ${foodId}.` }],
         };
       } catch (err) {
         return toolErrorResult(err);

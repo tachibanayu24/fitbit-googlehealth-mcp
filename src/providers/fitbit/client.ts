@@ -72,13 +72,10 @@ export class FitbitClient {
       const res = await fetch(url, { method: req.method ?? 'GET', headers, body });
       const ms = Date.now() - t0;
       const method = req.method ?? 'GET';
-      // DIAGNOSTIC (temporary): attach timing + status per attempt so we
-      // can tell whether long responses are from Fitbit itself, a 401
-      // refresh loop, or a 429 Retry-After sleep.
-      console.log(`[fitbit] ${method} ${req.path} → ${res.status} ${ms}ms attempt=${attempt}`);
 
       if (res.status === 401 && attempt === 1) {
         // token was rejected — force refresh and try once
+        console.log(`[fitbit] ${method} ${req.path} → 401 after ${ms}ms, refreshing token`);
         await invalidateAccessToken(this.env);
         continue;
       }
@@ -86,7 +83,7 @@ export class FitbitClient {
       if (res.status === 429) {
         const waitSec = parseRetryAfter(res.headers.get('Retry-After'));
         if (attempt < MAX_ATTEMPTS) {
-          console.log(`[fitbit] 429 sleeping ${waitSec}s before retry`);
+          console.log(`[fitbit] ${method} ${req.path} → 429, sleeping ${waitSec}s before retry`);
           await sleep(waitSec * 1000);
           continue;
         }
@@ -95,7 +92,9 @@ export class FitbitClient {
 
       const text = await res.text();
       if (!res.ok) {
-        console.log(`[fitbit] non-ok body: ${text.slice(0, 300)}`);
+        console.log(
+          `[fitbit] ${method} ${req.path} → ${res.status} after ${ms}ms: ${text.slice(0, 300)}`,
+        );
         throw new FitbitApiError(res.status, text, req.path);
       }
       return text;

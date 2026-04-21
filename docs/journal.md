@@ -339,3 +339,54 @@ Fitbit 側の仕様なので MCP では治せない。`get_heart_rate_intraday` 
 
 ### 付随:Claude 画面の `<system><functions>…</functions></system>` ダンプ
 ユーザーからレポート有り。MCP サーバーからは送っていない(`content` に text/structuredContent しか入れていない)ので、Claude クライアント側が `tools/list` で取った outputSchema/inputSchema を可視化していると思われる。実害なし。
+
+---
+
+## 2026-04-22 / 栄養素キーの実測 + custom food 系の廃止
+
+### 症状
+`log_food(foodName, calories, mealType, nutritionalValues)` を叩くと Fitbit が `400 Missing or invalid food unit id: null` を返す。さらに修正して通るようにしたあと(unitId=304 を自動付与)、今度は 201 で記録はされるが **Fitbit 側で PFC が 0 g として保存される**。`get_food_log` の `nutritionalValues` も `{protein: 0, carbs: 0, fat: 0, ...}`。
+
+### 対処:scripts/diagnose-food-log.ts
+Fitbit モバイルを経由せず、直接 API を叩いて栄養素フィールドの正しいキー名を実測するスクリプト。`wrangler kv key get --remote --binding=TOKENS access_token` でローカルに access_token を取り出し、複数のキー名パターンで POST → GET で読み返し、最後に DELETE で test log を掃除する。
+
+### 実測結果(2 ラウンド)
+
+| 栄養素 | 試したキー名 | 効いたキー |
+|---|---|---|
+| protein | `nutritionalValues.protein`, `proteinGrams`, `protein` | **`protein`** |
+| fat | `nutritionalValues.fat`, `totalFat`, `fat` | **`totalFat`** |
+| fiber | `nutritionalValues.fiber`, `dietaryFiber`, `fiber` | **`dietaryFiber`** |
+| carbs | `nutritionalValues.carbs`, `totalCarbs`, `carbs`, `carbohydrates`, `carbsGrams`, `totalCarbohydrate` | **`totalCarbohydrate`** |
+| sodium | `nutritionalValues.sodium`, `sodium`, `totalSodium` | **`sodium`** |
+| sugar | `nutritionalValues.sugar`, `sugars`, `sugar`, `totalSugars` | **未確認**(`sugars` を保険で送信、Fitbit の echo に sugar フィールド無し) |
+
+**asymmetric な命名**が面白い — protein だけ short lowercase、fat と sodium は素直、carbs と fiber は `total` / `dietary` prefix つき。Fitbit が各栄養素を別プロパティとして個別に parse している、という推測が立つ。docs には `nutritionalValues.*` 形式の記述があるが、実機ではどれも通らなかった。
+
+### Fitbit の Create Food API(別問題)
+検証の過程で、`POST /1/user/-/foods.json`(カスタム食品作成)は **calories しか保存しない** ことも確認。送信した protein/carbs/fat/fiber は silent drop される。このため、`create_custom_food` で作った foodId で `log_food(foodId)` しても PFC=0 となり、作り置きの栄養素トラッキングには使えない。
+
+### 設計判断:custom food 系の廃止
+
+`create_custom_food` / `delete_custom_food` / `log_food` の foodId モードを一括で廃止:
+
+- Fitbit 側の Create Food 仕様(calories-only)で PFC 追跡の主目的を達成できない
+- MCP 内に `save_meal_preset` + `log_preset`(KV に PFC 保存、呼び出し時に foodName 経路で Fitbit に記録)が既にある → こちらで完全に代替できる、かつ PFC がちゃんと Fitbit に入る
+- ツール 2 つ消すことで LLM の選択迷いも減る(foodId モードで叩いて「macros が 0 だった」と気づくのは UX として悪い)
+
+削除済みの Fitbit カスタム食品(`830071181` / `830124938`)は Fitbit アプリ側で手動削除可能。
+
+### 残った知見
+- **mealType は honoured**。`create_custom_food` 経由の log_food でも `mealTypeId: 1` (Breakfast) が保存された。Fitbit docs の「Anytime に強制される」記述は少なくとも現在の API では当たらない
+- Fitbit の nutritional values echo は 6 フィールド(calories/carbs/fat/fiber/protein/sodium)固定で、sugar は echo に出ない。sugar が保存されているかは `get_food_log` の nutritionalValues でも確認できない
+
+### Tool count 変化
+35 → 33(write 系 -2)。
+
+- Read: 16(変化なし)
+- Write: 7(log_food foodName-only、create_custom_food 廃止)
+- Delete: 6(変化なし)
+- Meal preset: 4(変化なし)
+
+### 診断スクリプトの残置
+`scripts/diagnose-food-log.ts` は消さずに残す。Fitbit API の挙動が再度変わった時、同じスクリプトに新パターンを足して実行すれば素早く特定できる。
