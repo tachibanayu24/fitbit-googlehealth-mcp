@@ -192,7 +192,6 @@ export function registerPresetTools(server: McpServer, provider: HealthProvider,
           foodName: preset.name,
           calories: scaled.calories ?? preset.calories,
           amount: 1,
-          unitName: 'serving',
           nutritionalValues: {
             protein: scaled.protein,
             carbs: scaled.carbs,

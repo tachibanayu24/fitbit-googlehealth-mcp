@@ -32,6 +32,9 @@ const CreateFoodLogResponseSchema = z.object({
   foodLog: FoodLogEntrySchema,
 });
 
+/** Fitbit food-unit id for "serving", used as a safe default. */
+const FITBIT_UNIT_SERVING = 304;
+
 export async function logFood(client: FitbitClient, input: LogFoodInput): Promise<FoodLogEntry> {
   const usingFoodId = input.foodId !== undefined;
   const usingFoodName = input.foodName !== undefined;
@@ -57,7 +60,11 @@ export async function logFood(client: FitbitClient, input: LogFoodInput): Promis
       throw new RangeError('logFood: calories is required when foodName is supplied.');
     }
     form.calories = input.calories;
-    form.unitName = input.unitName ?? 'serving';
+    // Fitbit's /foods/log endpoint now rejects foodName posts without a
+    // numeric `unitId` ("Missing or invalid food unit id: null."). `unitName`
+    // is no longer accepted as a substitute. Default to the "serving"
+    // food-unit id and let callers override via input.unitId.
+    form.unitId = input.unitId ?? FITBIT_UNIT_SERVING;
     if (input.brand) form.brandName = input.brand;
     const n = input.nutritionalValues;
     if (n) {
@@ -81,9 +88,6 @@ export async function logFood(client: FitbitClient, input: LogFoodInput): Promis
 const CreateCustomFoodResponseSchema = z.object({
   food: CustomFoodSchema,
 });
-
-/** Fitbit serving unit id used as a safe default. */
-const FITBIT_UNIT_SERVING = 304;
 
 export async function createCustomFood(
   client: FitbitClient,
@@ -132,10 +136,11 @@ export async function logMeal(client: FitbitClient, input: LogMealInput): Promis
     const entry = await logFood(client, {
       date: input.date,
       mealType: input.mealType,
-      foodName: item.name,
+      // Surface the estimated portion in the name itself so it's visible
+      // in the Fitbit UI — Fitbit no longer accepts a free-text unitName.
+      foodName: item.estimatedGrams ? `${item.name} (${item.estimatedGrams}g)` : item.name,
       calories: item.calories,
       amount: 1,
-      unitName: item.estimatedGrams ? `portion (${item.estimatedGrams}g)` : 'serving',
       nutritionalValues: {
         protein: item.protein,
         carbs: item.carbs,

@@ -366,14 +366,18 @@ export type LogFoodInput = {
   mealType: MealTypeT;
   /** Exclusive with foodName. Use after create_custom_food. */
   foodId?: number;
-  /** Required with foodId (copy from create_custom_food.defaultUnit.id). */
+  /**
+   * Fitbit food-unit id.
+   * - Required when using foodId (copy from create_custom_food.defaultUnit.id).
+   * - Optional when using foodName; defaults to 304 (= "serving") since
+   *   Fitbit's log endpoint rejects a foodName post without a numeric unit.
+   */
   unitId?: number;
   /** Exclusive with foodId. Plain-text name. */
   foodName?: string;
   /** Required when using foodName. */
   calories?: number;
   amount?: number;
-  unitName?: string;
   brand?: string;
   nutritionalValues?: NutritionalValues;
 };

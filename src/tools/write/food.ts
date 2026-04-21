@@ -31,8 +31,21 @@ export function registerFoodWriteTools(
     'log_food',
     {
       title: 'Log a single food entry',
-      description:
-        'Record one food item to Fitbit. Two modes: (1) pass `foodName` + `calories` for a plain-text entry (bypasses the 2025/11 Search Foods outage, mealType is honoured); (2) pass `foodId` + `unitId` (from a prior create_custom_food) to reuse a saved meal — note that Fitbit may force `mealTypeId` to Anytime (7) for custom foods, verify before relying on it for morning/lunch/dinner analysis. Exactly one of foodName/foodId is required.',
+      description: [
+        'Record one food item. Two modes:',
+        ' (1) foodName + calories + optional unitId (defaults to 304="serving") +',
+        '     optional nutritionalValues — this is the ONLY path that stores',
+        '     protein/carbs/fat in Fitbit. mealType is honoured.',
+        ' (2) foodId + unitId from a prior create_custom_food call. Convenient,',
+        '     but Fitbit silently drops macros on this path (stores calories',
+        '     only). mealType IS honoured. Prefer (1) / log_preset when PFC',
+        '     matters; use (2) only for calorie-only bookkeeping.',
+        '',
+        'For recurring meals (e.g. 作り置き), prefer save_meal_preset +',
+        'log_preset — they wrap mode (1) so PFC actually lands in Fitbit.',
+        '',
+        'Exactly one of foodName / foodId is required.',
+      ].join('\n'),
       inputSchema: {
         date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
         mealType: MealType,
@@ -55,14 +68,10 @@ export function registerFoodWriteTools(
           .number()
           .int()
           .describe(
-            'Fitbit unit id (copy from create_custom_food.defaultUnit.id). Required when using foodId.',
+            'Fitbit numeric food-unit id. Required with foodId (use the defaultUnit.id from create_custom_food). Optional with foodName; defaults to 304 ("serving"). Fitbit rejects foodName posts without a numeric unit id.',
           )
           .optional(),
         amount: z.number().positive().describe('Portion count. Default 1.').optional(),
-        unitName: z
-          .string()
-          .describe('Free-text unit, e.g. "piece", "bowl". Default "serving". foodName only.')
-          .optional(),
         brand: z.string().optional(),
         nutritionalValues: NutritionalValuesSchema.optional(),
       },
@@ -249,22 +258,27 @@ export function registerFoodWriteTools(
     },
   );
 
-  // ---- create_custom_food: register a private, reusable food ----
+  // ---- create_custom_food: register a private food (calories-only) ----
   server.registerTool(
     'create_custom_food',
     {
-      title: 'Create a private custom food',
+      title: 'Create a private custom food (calories-only)',
       description: [
-        'Register a reusable custom food on Fitbit. Ideal for home-cooked',
-        'batches ("自家製キーマカレー" / "母のカレー") so you can log them',
-        'later by foodId instead of re-entering calories and macros each time.',
-        'Returns `foodId` (and `defaultUnit.id` to pass as unitId) — save the',
-        'pair and use them with log_food.',
+        'Register a reusable custom food on Fitbit. Returns foodId + unitId',
+        'you can feed back into log_food (mode 2).',
         '',
-        'Caveat: Fitbit documents that mealTypeId is stored as Anytime (7)',
-        'for custom-food log entries regardless of the value sent. If your',
-        'workflow cares about breakfast/lunch/dinner segmentation, prefer',
-        'log_food with plain `foodName` (and a meal preset kept client-side).',
+        "⚠️ Important limitation: Fitbit's Create Food endpoint silently",
+        'drops macros — protein/carbs/fat you submit here are NOT persisted.',
+        'Log entries created via foodId also come back with PFC=0. This makes',
+        'this path unsuitable for PFC tracking.',
+        '',
+        'Use **save_meal_preset + log_preset** instead if you care about',
+        'protein/carbs/fat for home-cooked batches. This tool is still useful',
+        "when you just want the food name to appear in Fitbit's in-app",
+        '"Recent Foods" list or for calorie-only bookkeeping.',
+        '',
+        'mealType is honoured when logging with the returned foodId (verified',
+        'empirically — older docs claiming Anytime-forced appear stale).',
       ].join('\n'),
       inputSchema: {
         name: z.string().describe('Display name, e.g. "自家製キーマカレー".'),
