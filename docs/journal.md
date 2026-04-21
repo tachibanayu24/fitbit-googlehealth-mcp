@@ -39,3 +39,19 @@
 - `git init` / `.gitignore` / MIT LICENSE / README 雛形
 - `docs/research.md` に調査結果を保存
 - `docs/journal.md`(このファイル)を開始
+- Cloudflare Worker 基盤を scaffold
+  - `package.json`(pnpm、`type: module`、scripts: dev/deploy/setup:fitbit/test/typecheck/lint/format)
+  - `tsconfig.json`(ES2022 / Bundler / strict + noUncheckedIndexedAccess / types に workers + node 両方)
+  - `biome.json`(Biome 2.x の `files.includes` 書式、single quote / semicolons always / trailing commas all)
+  - `wrangler.toml`(compat date 2025-11-01、`nodejs_compat` フラグ、`[vars].ALLOWED_CIDRS = "160.79.104.0/21"`。KV と secrets は後のマイルストーンで有効化する方針でコメントアウト)
+  - `wrangler.toml.example`(Public OSS 向けテンプレ、KV id プレースホルダ)
+- 依存インストール:`@modelcontextprotocol/sdk@^1.29`、`hono@^4.7`、`zod@^3.25`(ランタイム)、`wrangler@^4`、`typescript@^5.7`、`vitest@^2`、`@biomejs/biome@^2`、`@cloudflare/workers-types`、`tsx@^4`、`@types/node@^22`(dev)
+- `src/env.ts`(Env バインディング型)
+- `src/index.ts`(Hono app、`/` と `/health`。`/mcp/:secret` は後続マイルストーン)
+- `pnpm typecheck` / `pnpm lint` / `wrangler dev` で疎通確認。`curl /health` で `{"status":"ok","mcpProtocolVersion":"2025-06-18"}` が返る
+
+### メモ
+
+- Zod は v3.25 系を採用。SDK 内部は `zod/v4` だが標準 `zod` path では v3 後方互換で問題ない(SDK >= 1.17.5 の報告)。必要になれば v4 へ上げる。
+- Wrangler v4 で KV の `preview_id` は不要。dev 時のローカル KV は自動でモックされる。本番 deploy 前に `wrangler kv:namespace create` で実 id を入れる。
+- Biome 2.x では `files.ignore` → `files.includes` 配列に否定パターン(`"!node_modules"` 等)を入れる書式に変わっている。

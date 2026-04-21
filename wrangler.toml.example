@@ -1,0 +1,26 @@
+name = "fitbit-logger-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Anthropic's published outbound CIDR for Claude → MCP server connections.
+ALLOWED_CIDRS = "160.79.104.0/21"
+
+# Create both KV namespaces before `wrangler deploy`:
+#   wrangler kv:namespace create TOKENS
+#   wrangler kv:namespace create CACHE
+# Then paste the returned ids below.
+
+[[kv_namespaces]]
+binding = "TOKENS"
+id = "<your-tokens-namespace-id>"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "<your-cache-namespace-id>"
+
+# Set the following secrets:
+#   wrangler secret put FITBIT_CLIENT_ID
+#   wrangler secret put FITBIT_CLIENT_SECRET
+#   wrangler secret put MCP_SHARED_SECRET   # `openssl rand -base64 32`

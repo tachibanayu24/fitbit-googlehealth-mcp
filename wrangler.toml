@@ -1,0 +1,28 @@
+name = "fitbit-logger-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Anthropic's published outbound CIDR for Claude → MCP server connections.
+# Override via `wrangler secret put` if Anthropic adds additional ranges.
+# See: https://platform.claude.com/docs/en/api/ip-addresses
+ALLOWED_CIDRS = "160.79.104.0/21"
+
+# ---
+# KV namespaces are introduced in a later milestone (Fitbit client base)
+# once we run `wrangler kv:namespace create TOKENS` / `... CACHE`.
+# Uncomment and fill ids after creation:
+#
+# [[kv_namespaces]]
+# binding = "TOKENS"
+# id = "FILL_AFTER_KV_CREATE"
+#
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "FILL_AFTER_KV_CREATE"
+#
+# Secrets (never commit these) are set via:
+#   wrangler secret put FITBIT_CLIENT_ID
+#   wrangler secret put FITBIT_CLIENT_SECRET
+#   wrangler secret put MCP_SHARED_SECRET
