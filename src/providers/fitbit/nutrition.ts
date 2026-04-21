@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type {
+  CreateCustomFoodInput,
+  CustomFood,
   FoodLog,
   FoodLogEntry,
   LogFoodInput,
@@ -8,7 +10,7 @@ import type {
   MealTypeT,
   WaterLogEntry,
 } from '../types';
-import { FoodLogEntrySchema, FoodLogSchema, WaterLogEntrySchema } from '../types';
+import { CustomFoodSchema, FoodLogEntrySchema, FoodLogSchema, WaterLogEntrySchema } from '../types';
 import type { FitbitClient } from './client';
 
 export async function getFoodLog(client: FitbitClient, date: string): Promise<FoodLog> {
@@ -31,14 +33,70 @@ const CreateFoodLogResponseSchema = z.object({
 });
 
 export async function logFood(client: FitbitClient, input: LogFoodInput): Promise<FoodLogEntry> {
+  const usingFoodId = input.foodId !== undefined;
+  const usingFoodName = input.foodName !== undefined;
+  if (usingFoodId === usingFoodName) {
+    throw new RangeError('logFood: exactly one of foodId or foodName must be provided.');
+  }
+
   const form: Record<string, string | number | undefined> = {
-    foodName: input.foodName,
-    calories: input.calories,
     mealTypeId: MEAL_TYPE_ID[input.mealType],
     date: input.date,
     amount: input.amount ?? 1,
-    unitName: input.unitName ?? 'serving',
-    brandName: input.brand,
+  };
+
+  if (usingFoodId) {
+    if (input.unitId === undefined) {
+      throw new RangeError('logFood: unitId is required when foodId is supplied.');
+    }
+    form.foodId = input.foodId;
+    form.unitId = input.unitId;
+  } else {
+    form.foodName = input.foodName;
+    if (input.calories === undefined) {
+      throw new RangeError('logFood: calories is required when foodName is supplied.');
+    }
+    form.calories = input.calories;
+    form.unitName = input.unitName ?? 'serving';
+    if (input.brand) form.brandName = input.brand;
+    const n = input.nutritionalValues;
+    if (n) {
+      if (n.protein !== undefined) form['nutritionalValues.protein'] = n.protein;
+      if (n.carbs !== undefined) form['nutritionalValues.carbs'] = n.carbs;
+      if (n.fat !== undefined) form['nutritionalValues.fat'] = n.fat;
+      if (n.fiber !== undefined) form['nutritionalValues.fiber'] = n.fiber;
+      if (n.sodium !== undefined) form['nutritionalValues.sodium'] = n.sodium;
+      if (n.sugar !== undefined) form['nutritionalValues.sugar'] = n.sugar;
+    }
+  }
+
+  const response = await client.requestJson(CreateFoodLogResponseSchema, {
+    path: '/1/user/-/foods/log.json',
+    method: 'POST',
+    form,
+  });
+  return response.foodLog;
+}
+
+const CreateCustomFoodResponseSchema = z.object({
+  food: CustomFoodSchema,
+});
+
+/** Fitbit serving unit id used as a safe default. */
+const FITBIT_UNIT_SERVING = 304;
+
+export async function createCustomFood(
+  client: FitbitClient,
+  input: CreateCustomFoodInput,
+): Promise<CustomFood> {
+  const form: Record<string, string | number | undefined> = {
+    name: input.name,
+    defaultFoodMeasurementUnitId: input.defaultFoodMeasurementUnitId ?? FITBIT_UNIT_SERVING,
+    defaultServingSize: input.defaultServingSize ?? 1,
+    calories: input.calories,
+    formType: input.formType,
+    description: input.description,
+    brand: input.brand,
   };
   const n = input.nutritionalValues;
   if (n) {
@@ -50,12 +108,19 @@ export async function logFood(client: FitbitClient, input: LogFoodInput): Promis
     if (n.sugar !== undefined) form['nutritionalValues.sugar'] = n.sugar;
   }
 
-  const response = await client.requestJson(CreateFoodLogResponseSchema, {
-    path: '/1/user/-/foods/log.json',
+  const response = await client.requestJson(CreateCustomFoodResponseSchema, {
+    path: '/1/user/-/foods.json',
     method: 'POST',
     form,
   });
-  return response.foodLog;
+  return response.food;
+}
+
+export async function deleteCustomFood(client: FitbitClient, foodId: number): Promise<void> {
+  await client.requestText({
+    path: `/1/user/-/foods/${foodId}.json`,
+    method: 'DELETE',
+  });
 }
 
 export async function logMeal(client: FitbitClient, input: LogMealInput): Promise<FoodLogEntry[]> {

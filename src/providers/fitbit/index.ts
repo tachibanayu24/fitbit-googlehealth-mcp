@@ -4,6 +4,8 @@ import type {
   BodyFatLog,
   BodyLog,
   CardioFitness,
+  CreateCustomFoodInput,
+  CustomFood,
   DailySummary,
   Device,
   ExerciseLog,
@@ -48,7 +50,16 @@ import {
   getSkinTemperature,
   getSpO2,
 } from './metrics';
-import { deleteFoodLog, deleteWaterLog, getFoodLog, logFood, logMeal, logWater } from './nutrition';
+import {
+  createCustomFood,
+  deleteCustomFood,
+  deleteFoodLog,
+  deleteWaterLog,
+  getFoodLog,
+  logFood,
+  logMeal,
+  logWater,
+} from './nutrition';
 import { getProfile } from './profile';
 import { deleteSleepLog, getSleep, getSleepRange, logSleep } from './sleep';
 
@@ -169,5 +180,11 @@ export class FitbitProvider implements HealthProvider {
   }
   deleteSleepLog(logId: number): Promise<void> {
     return deleteSleepLog(this.client, logId);
+  }
+  createCustomFood(input: CreateCustomFoodInput): Promise<CustomFood> {
+    return createCustomFood(this.client, input);
+  }
+  deleteCustomFood(foodId: number): Promise<void> {
+    return deleteCustomFood(this.client, foodId);
   }
 }
