@@ -105,3 +105,10 @@ export async function deleteFoodLog(client: FitbitClient, logId: number): Promis
     method: 'DELETE',
   });
 }
+
+export async function deleteWaterLog(client: FitbitClient, logId: number): Promise<void> {
+  await client.requestText({
+    path: `/1/user/-/foods/log/water/${logId}.json`,
+    method: 'DELETE',
+  });
+}

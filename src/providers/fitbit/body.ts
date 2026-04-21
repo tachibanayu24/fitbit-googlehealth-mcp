@@ -69,3 +69,17 @@ export async function logBodyFat(
   });
   return response.fatLog;
 }
+
+export async function deleteWeightLog(client: FitbitClient, logId: number): Promise<void> {
+  await client.requestText({
+    path: `/1/user/-/body/log/weight/${logId}.json`,
+    method: 'DELETE',
+  });
+}
+
+export async function deleteBodyFatLog(client: FitbitClient, logId: number): Promise<void> {
+  await client.requestText({
+    path: `/1/user/-/body/log/fat/${logId}.json`,
+    method: 'DELETE',
+  });
+}

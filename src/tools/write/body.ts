@@ -76,4 +76,59 @@ export function registerBodyWriteTools(
       }
     },
   );
+
+  server.registerTool(
+    'delete_weight_log',
+    {
+      title: 'Delete a weight log entry',
+      description:
+        'Remove a previously logged weight entry by its logId (from log_weight output or from get_body_log.weight[].logId). Use this to undo a mis-typed or test reading.',
+      inputSchema: {
+        logId: z.number().int().describe('Weight logId.'),
+        date: z
+          .string()
+          .describe('YYYY-MM-DD the entry was logged under. Used to invalidate caches.')
+          .optional(),
+      },
+      outputSchema: { deleted: z.boolean(), logId: z.number() },
+    },
+    async ({ logId, date }) => {
+      try {
+        await provider.deleteWeightLog(logId);
+        const d = date ?? todayJst();
+        assertIsoDate(d, 'date');
+        await invalidate(env, cacheKey('get_daily_summary', { date: d }));
+        return {
+          structuredContent: { deleted: true, logId },
+          content: [{ type: 'text', text: `Deleted weight log ${logId}.` }],
+        };
+      } catch (err) {
+        return toolErrorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_body_fat_log',
+    {
+      title: 'Delete a body-fat log entry',
+      description:
+        'Remove a previously logged body-fat entry by its logId (from log_body_fat output or from get_body_log.fat[].logId).',
+      inputSchema: {
+        logId: z.number().int().describe('Body-fat logId.'),
+      },
+      outputSchema: { deleted: z.boolean(), logId: z.number() },
+    },
+    async ({ logId }) => {
+      try {
+        await provider.deleteBodyFatLog(logId);
+        return {
+          structuredContent: { deleted: true, logId },
+          content: [{ type: 'text', text: `Deleted body-fat log ${logId}.` }],
+        };
+      } catch (err) {
+        return toolErrorResult(err);
+      }
+    },
+  );
 }

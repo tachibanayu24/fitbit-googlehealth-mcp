@@ -68,4 +68,39 @@ export function registerActivityWriteTool(
       }
     },
   );
+
+  server.registerTool(
+    'delete_activity_log',
+    {
+      title: 'Delete an activity / exercise log entry',
+      description:
+        'Remove a previously logged exercise by its logId (from log_activity output or from get_exercise_list[].logId).',
+      inputSchema: {
+        logId: z.number().int().describe('Activity logId.'),
+        date: z
+          .string()
+          .describe('YYYY-MM-DD the entry was logged under. Used to invalidate caches.')
+          .optional(),
+      },
+      outputSchema: { deleted: z.boolean(), logId: z.number() },
+    },
+    async ({ logId, date }) => {
+      try {
+        await provider.deleteActivityLog(logId);
+        const d = date ?? todayJst();
+        assertIsoDate(d, 'date');
+        await invalidate(
+          env,
+          cacheKey('get_daily_summary', { date: d }),
+          cacheKey('get_exercise_list', { beforeDate: d }),
+        );
+        return {
+          structuredContent: { deleted: true, logId },
+          content: [{ type: 'text', text: `Deleted activity log ${logId}.` }],
+        };
+      } catch (err) {
+        return toolErrorResult(err);
+      }
+    },
+  );
 }

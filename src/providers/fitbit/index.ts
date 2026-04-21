@@ -30,8 +30,14 @@ import type {
   WaterLogEntry,
   WeightLog,
 } from '../types';
-import { getActivityTimeSeries, getDailySummary, getExerciseList, logActivity } from './activity';
-import { getBodyLog, logBodyFat, logWeight } from './body';
+import {
+  deleteActivityLog,
+  getActivityTimeSeries,
+  getDailySummary,
+  getExerciseList,
+  logActivity,
+} from './activity';
+import { deleteBodyFatLog, deleteWeightLog, getBodyLog, logBodyFat, logWeight } from './body';
 import { FitbitClient } from './client';
 import { listDevices } from './device';
 import { getHeartRateIntraday, getHeartRateRange } from './heart';
@@ -42,9 +48,9 @@ import {
   getSkinTemperature,
   getSpO2,
 } from './metrics';
-import { deleteFoodLog, getFoodLog, logFood, logMeal, logWater } from './nutrition';
+import { deleteFoodLog, deleteWaterLog, getFoodLog, logFood, logMeal, logWater } from './nutrition';
 import { getProfile } from './profile';
-import { getSleep, getSleepRange, logSleep } from './sleep';
+import { deleteSleepLog, getSleep, getSleepRange, logSleep } from './sleep';
 
 /**
  * FitbitProvider — implements HealthProvider against the 2026-era
@@ -148,5 +154,20 @@ export class FitbitProvider implements HealthProvider {
   }
   deleteFoodLog(logId: number): Promise<void> {
     return deleteFoodLog(this.client, logId);
+  }
+  deleteWaterLog(logId: number): Promise<void> {
+    return deleteWaterLog(this.client, logId);
+  }
+  deleteWeightLog(logId: number): Promise<void> {
+    return deleteWeightLog(this.client, logId);
+  }
+  deleteBodyFatLog(logId: number): Promise<void> {
+    return deleteBodyFatLog(this.client, logId);
+  }
+  deleteActivityLog(logId: number): Promise<void> {
+    return deleteActivityLog(this.client, logId);
+  }
+  deleteSleepLog(logId: number): Promise<void> {
+    return deleteSleepLog(this.client, logId);
   }
 }

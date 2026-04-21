@@ -423,4 +423,9 @@ export interface HealthProvider {
   logActivity(input: LogActivityInput): Promise<ExerciseLog>;
   logSleep(input: LogSleepInput): Promise<SleepLog>;
   deleteFoodLog(logId: number): Promise<void>;
+  deleteWaterLog(logId: number): Promise<void>;
+  deleteWeightLog(logId: number): Promise<void>;
+  deleteBodyFatLog(logId: number): Promise<void>;
+  deleteActivityLog(logId: number): Promise<void>;
+  deleteSleepLog(logId: number): Promise<void>;
 }

@@ -196,4 +196,35 @@ export function registerFoodWriteTools(
       }
     },
   );
+
+  server.registerTool(
+    'delete_water_log',
+    {
+      title: 'Delete a water log entry',
+      description:
+        'Remove a previously logged water entry by its logId (from log_water output or from get_food_log.water.water[].logId).',
+      inputSchema: {
+        logId: z.number().int().describe('Water logId.'),
+        date: z
+          .string()
+          .describe('YYYY-MM-DD the entry was logged under. Used to invalidate caches.')
+          .optional(),
+      },
+      outputSchema: { deleted: z.boolean(), logId: z.number() },
+    },
+    async ({ logId, date }) => {
+      try {
+        await provider.deleteWaterLog(logId);
+        const d = date ?? todayJst();
+        assertIsoDate(d, 'date');
+        await invalidateFoodCaches(env, d);
+        return {
+          structuredContent: { deleted: true, logId },
+          content: [{ type: 'text', text: `Deleted water log ${logId}.` }],
+        };
+      } catch (err) {
+        return toolErrorResult(err);
+      }
+    },
+  );
 }

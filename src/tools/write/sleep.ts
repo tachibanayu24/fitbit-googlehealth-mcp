@@ -52,4 +52,35 @@ export function registerSleepWriteTool(
       }
     },
   );
+
+  server.registerTool(
+    'delete_sleep_log',
+    {
+      title: 'Delete a sleep log entry',
+      description:
+        'Remove a previously logged sleep entry by its logId (from log_sleep output or from get_sleep[].logId).',
+      inputSchema: {
+        logId: z.number().int().describe('Sleep logId.'),
+        date: z
+          .string()
+          .describe('YYYY-MM-DD the sleep was logged under. Used to invalidate caches.')
+          .optional(),
+      },
+      outputSchema: { deleted: z.boolean(), logId: z.number() },
+    },
+    async ({ logId, date }) => {
+      try {
+        await provider.deleteSleepLog(logId);
+        const d = date ?? todayJst();
+        assertIsoDate(d, 'date');
+        await invalidate(env, cacheKey('get_sleep', { date: d }));
+        return {
+          structuredContent: { deleted: true, logId },
+          content: [{ type: 'text', text: `Deleted sleep log ${logId}.` }],
+        };
+      } catch (err) {
+        return toolErrorResult(err);
+      }
+    },
+  );
 }
