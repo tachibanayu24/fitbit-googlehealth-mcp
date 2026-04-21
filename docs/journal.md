@@ -117,3 +117,36 @@ $ export FITBIT_CLIENT_SECRET=YYYYYY...
 $ pnpm run setup:fitbit
 ```
 を実行する。これはリポジトリには残らない一時セッション、かつユーザー側の行動なので、動作確認は Worker 内 `oauth.ts` の refresh と組み合わせた次マイルストーンで初めて実データで検証する。
+
+---
+
+## 2026-04-22 / Fitbit クライアント基盤
+
+`src/lib/`(汎用)と `src/providers/fitbit/`(ドメイン)に基盤を実装。
+
+### レイヤ
+- `src/lib/errors.ts` — `FitbitAuthError` / `FitbitApiError` / `FitbitRateLimitError` と、MCP ツール結果に変換する `toolErrorResult()`。Auth エラー時は「`setup:fitbit` 再実行を促すヒント」を自動で添える(モバイルで落ちた時に復旧手順が見えるのは実用重要)
+- `src/lib/date.ts` — `toJstDateString()` / `todayJst()` / `assertIsoDate()` / `normalizeRange()`。食事ログなどの日付はユーザー体感と合うよう JST で閉じる
+- `src/lib/rate-limit.ts` — `parseRetryAfter()`(delta-seconds のみ扱い、HTTP-date は fallback に倒す。1〜30 秒にクランプ)、`sleep()`
+- `src/lib/cache.ts` — `getCached()` / `invalidate()` / `cacheKey()`。Workers KV を TTL 1h で使う。`cacheKey` は args をアルファベット順 sort で安定化
+- `src/providers/fitbit/oauth.ts` — `getAccessToken()` が通常パス。`expires_at - 60s < now` なら自動で `refreshTokens()`。refresh は `POST /oauth2/token` に Basic(client_id:client_secret)+ `grant_type=refresh_token`。KV には 4 キー(`access_token` / `refresh_token` / `expires_at` / `user_id`)を atomic-ish に保存。並行 refresh の競合は Fitbit の「2 分以内の同一 refresh_token に同一レスポンスを返す」仕様に便乗して KV-CAS ロック不要とした
+- `src/providers/fitbit/client.ts` — `FitbitClient#requestText()` / `requestJson(schema, req)`。Bearer 注入、401 時は `invalidateAccessToken()` + 1 回リトライ、429 時は `Retry-After` 尊重で最大 1 回リトライ、`ZodType` 渡しでレスポンス検証
+
+### 設計メモ
+- Fitbit 書き込みは `application/x-www-form-urlencoded`(JSON body は公式には未推奨)。`FitbitRequest.form` を `URLSearchParams` 化する分岐にしてある
+- `requestJson` の schema validation が失敗した場合は `FitbitApiError` として扱う(200 OK でも仕様外ペイロードなら同じ扱い)
+- `FitbitClient` はステートレス。`new FitbitClient(env)` が Worker リクエスト毎に作られても KV や `env.TOKENS` の共有で問題ない
+
+### wrangler.toml の KV
+`TOKENS` / `CACHE` の bindings を `wrangler.toml` に追加。本番 id は `wrangler kv:namespace create` 実行後に差し替えだが、**placeholder id のままでも `wrangler dev` は local SQLite-backed KV を使って起動する**ことを実機で確認(wrangler v4.84):
+```
+env.TOKENS (local-tokens-placeholder)   KV Namespace   local
+env.CACHE  (local-cache-placeholder)    KV Namespace   local
+```
+`.dev.vars` の `MCP_SHARED_SECRET` も "(hidden)" として bind されている。
+
+### テスト
+45 テスト緑(既存 17 + date 17 + rate-limit 7 + cache 4)。oauth.ts と client.ts は KV / fetch モックを要するため、マイルストーン 9(テスト整備)でまとめて。
+
+### まだやらないこと
+`get_profile` 実疎通は、ユーザーの dev.fitbit.com アプリ作成 + `setup:fitbit` 実行 + `wrangler kv:key put` まで揃ってから。Worker 側から Fitbit API を叩く route がまだ /mcp/:secret の 501 スタブしかないので、次マイルストーン(Provider 抽象 + Read 実装)で FitbitProvider を完成させてから MCP ツールとして wire up する。

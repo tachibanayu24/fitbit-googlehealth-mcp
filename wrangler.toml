@@ -5,24 +5,24 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Anthropic's published outbound CIDR for Claude → MCP server connections.
-# Override via `wrangler secret put` if Anthropic adds additional ranges.
+# Override via env if Anthropic publishes additional ranges.
 # See: https://platform.claude.com/docs/en/api/ip-addresses
 ALLOWED_CIDRS = "160.79.104.0/21"
 
-# ---
-# KV namespaces are introduced in a later milestone (Fitbit client base)
-# once we run `wrangler kv:namespace create TOKENS` / `... CACHE`.
-# Uncomment and fill ids after creation:
-#
-# [[kv_namespaces]]
-# binding = "TOKENS"
-# id = "FILL_AFTER_KV_CREATE"
-#
-# [[kv_namespaces]]
-# binding = "CACHE"
-# id = "FILL_AFTER_KV_CREATE"
-#
-# Secrets (never commit these) are set via:
-#   wrangler secret put FITBIT_CLIENT_ID
-#   wrangler secret put FITBIT_CLIENT_SECRET
-#   wrangler secret put MCP_SHARED_SECRET
+# These placeholder ids route to a local SQLite-backed KV when running
+# `wrangler dev`. Before `wrangler deploy`, replace with real ids from:
+#   pnpm wrangler kv:namespace create TOKENS
+#   pnpm wrangler kv:namespace create CACHE
+
+[[kv_namespaces]]
+binding = "TOKENS"
+id = "local-tokens-placeholder"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "local-cache-placeholder"
+
+# Secrets (never committed) are set via:
+#   pnpm wrangler secret put FITBIT_CLIENT_ID
+#   pnpm wrangler secret put FITBIT_CLIENT_SECRET
+#   pnpm wrangler secret put MCP_SHARED_SECRET   # openssl rand -base64 32
