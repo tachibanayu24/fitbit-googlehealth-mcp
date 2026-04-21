@@ -1,7 +1,7 @@
 {
-  "name": "fitbit-logger-mcp",
+  "name": "fitbit-googlehealth-mcp",
   "version": "0.1.0",
-  "description": "Fitbit MCP server for Claude mobile: comprehensive Fitbit data access and photo-driven food logging via the Model Context Protocol.",
+  "description": "MCP server for Fitbit (and the upcoming Google Health API migration): comprehensive health-data access and photo-driven food logging for Claude mobile.",
   "private": true,
   "type": "module",
   "license": "MIT",

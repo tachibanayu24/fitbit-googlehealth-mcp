@@ -114,8 +114,10 @@ describe('refreshTokens', () => {
   });
 
   it('sends HTTP Basic and form-encoded body to /oauth2/token', async () => {
+    // `_url` / `_init` are intentionally present so fetchMock.mock.calls is
+    // typed as [url, init] rather than [].
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string | URL, _init: RequestInit) =>
         new Response(
           JSON.stringify({
             access_token: 'a2',
@@ -133,8 +135,9 @@ describe('refreshTokens', () => {
     const env = createMockEnv();
     await refreshTokens(env, 'rt');
 
-    const call = fetchMock.mock.calls[0]!;
-    const [url, init] = call as [string | URL, RequestInit];
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url, init] = call;
     expect(String(url)).toBe('https://api.fitbit.com/oauth2/token');
     const headers = init.headers as Record<string, string>;
     const authHeader = headers.Authorization ?? '';

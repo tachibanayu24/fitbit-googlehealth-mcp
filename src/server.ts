@@ -5,7 +5,7 @@ import { registerAllTools } from './tools';
 
 export function buildServer(env: Env): McpServer {
   const server = new McpServer({
-    name: 'fitbit-logger-mcp',
+    name: 'fitbit-googlehealth-mcp',
     version: '0.1.0',
   });
   const provider = new FitbitProvider(env);
