@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import type { ActivityResourceT, DailySummary, ExerciseLog, TimeSeries } from '../types';
+import type {
+  ActivityResourceT,
+  DailySummary,
+  ExerciseLog,
+  LogActivityInput,
+  TimeSeries,
+} from '../types';
 import { DailySummarySchema, ExerciseLogSchema, TimeSeriesPointSchema } from '../types';
 import type { FitbitClient } from './client';
 
@@ -47,4 +53,29 @@ export async function getExerciseList(
     },
   });
   return response.activities;
+}
+
+const CreateActivityLogResponseSchema = z.object({
+  activityLog: ExerciseLogSchema,
+});
+
+export async function logActivity(
+  client: FitbitClient,
+  input: LogActivityInput,
+): Promise<ExerciseLog> {
+  const response = await client.requestJson(CreateActivityLogResponseSchema, {
+    path: '/1/user/-/activities.json',
+    method: 'POST',
+    form: {
+      activityId: input.activityId,
+      activityName: input.activityName,
+      manualCalories: input.manualCalories,
+      startTime: input.startTime,
+      durationMillis: input.durationMs,
+      date: input.date,
+      distance: input.distanceKm,
+      distanceUnit: input.distanceKm !== undefined ? 'Kilometer' : undefined,
+    },
+  });
+  return response.activityLog;
 }

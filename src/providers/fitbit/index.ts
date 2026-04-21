@@ -30,8 +30,8 @@ import type {
   WaterLogEntry,
   WeightLog,
 } from '../types';
-import { getActivityTimeSeries, getDailySummary, getExerciseList } from './activity';
-import { getBodyLog } from './body';
+import { getActivityTimeSeries, getDailySummary, getExerciseList, logActivity } from './activity';
+import { getBodyLog, logBodyFat, logWeight } from './body';
 import { FitbitClient } from './client';
 import { listDevices } from './device';
 import { getHeartRateIntraday, getHeartRateRange } from './heart';
@@ -42,9 +42,9 @@ import {
   getSkinTemperature,
   getSpO2,
 } from './metrics';
-import { getFoodLog } from './nutrition';
+import { deleteFoodLog, getFoodLog, logFood, logMeal, logWater } from './nutrition';
 import { getProfile } from './profile';
-import { getSleep, getSleepRange } from './sleep';
+import { getSleep, getSleepRange, logSleep } from './sleep';
 
 /**
  * FitbitProvider — implements HealthProvider against the 2026-era
@@ -124,29 +124,29 @@ export class FitbitProvider implements HealthProvider {
     return getCardioFitness(this.client, date);
   }
 
-  // ---------- Write (implemented in M7) ----------
-  logFood(_input: LogFoodInput): Promise<FoodLogEntry> {
-    return Promise.reject(new Error('not_implemented: logFood'));
+  // ---------- Write ----------
+  logFood(input: LogFoodInput): Promise<FoodLogEntry> {
+    return logFood(this.client, input);
   }
-  logMeal(_input: LogMealInput): Promise<FoodLogEntry[]> {
-    return Promise.reject(new Error('not_implemented: logMeal'));
+  logMeal(input: LogMealInput): Promise<FoodLogEntry[]> {
+    return logMeal(this.client, input);
   }
-  logWater(_input: LogWaterInput): Promise<WaterLogEntry> {
-    return Promise.reject(new Error('not_implemented: logWater'));
+  logWater(input: LogWaterInput): Promise<WaterLogEntry> {
+    return logWater(this.client, input);
   }
-  logWeight(_input: LogWeightInput): Promise<WeightLog> {
-    return Promise.reject(new Error('not_implemented: logWeight'));
+  logWeight(input: LogWeightInput): Promise<WeightLog> {
+    return logWeight(this.client, input);
   }
-  logBodyFat(_input: LogBodyFatInput): Promise<BodyFatLog> {
-    return Promise.reject(new Error('not_implemented: logBodyFat'));
+  logBodyFat(input: LogBodyFatInput): Promise<BodyFatLog> {
+    return logBodyFat(this.client, input);
   }
-  logActivity(_input: LogActivityInput): Promise<ExerciseLog> {
-    return Promise.reject(new Error('not_implemented: logActivity'));
+  logActivity(input: LogActivityInput): Promise<ExerciseLog> {
+    return logActivity(this.client, input);
   }
-  logSleep(_input: LogSleepInput): Promise<SleepLog> {
-    return Promise.reject(new Error('not_implemented: logSleep'));
+  logSleep(input: LogSleepInput): Promise<SleepLog> {
+    return logSleep(this.client, input);
   }
-  deleteFoodLog(_logId: number): Promise<void> {
-    return Promise.reject(new Error('not_implemented: deleteFoodLog'));
+  deleteFoodLog(logId: number): Promise<void> {
+    return deleteFoodLog(this.client, logId);
   }
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { SleepLog } from '../types';
+import type { LogSleepInput, SleepLog } from '../types';
 import { SleepLogSchema } from '../types';
 import type { FitbitClient } from './client';
 
@@ -21,6 +21,23 @@ export async function getSleepRange(
 ): Promise<SleepLog[]> {
   const response = await client.requestJson(SleepResponseSchema, {
     path: `/1.2/user/-/sleep/date/${start}/${end}.json`,
+  });
+  return response.sleep;
+}
+
+const CreateSleepLogResponseSchema = z.object({
+  sleep: SleepLogSchema,
+});
+
+export async function logSleep(client: FitbitClient, input: LogSleepInput): Promise<SleepLog> {
+  const response = await client.requestJson(CreateSleepLogResponseSchema, {
+    path: '/1.2/user/-/sleep.json',
+    method: 'POST',
+    form: {
+      startTime: input.startTime,
+      duration: input.durationMs,
+      date: input.date,
+    },
   });
   return response.sleep;
 }
