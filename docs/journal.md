@@ -83,3 +83,37 @@
 | 正 secret + IP ヘッダ無し | 403 `ip_not_allowed` ✓(ローカルでは Wrangler が 127.0.0.1 を埋める) |
 | 正 secret + CIDR 外 IP(1.2.3.4) | 403 `ip_not_allowed` ✓ |
 | 正 secret + CIDR 内 IP(160.79.104.5) | 501 `mcp_transport_not_yet_wired` ✓(guard 通過の合図、MCP 本体は次以降のマイルストーン) |
+
+---
+
+## 2026-04-22 / OAuth bootstrap CLI
+
+`scripts/setup-fitbit.ts`(tsx で実行)。Node 組み込み `http` で `127.0.0.1:8787/fitbit/callback` に一時サーバーを立て、PKCE(code_challenge S256)付きで認可 → code を token に交換 → 結果を表示 + Cloudflare 投入コマンドを案内する、というワンショット CLI。
+
+### 実装メモ
+- **依存追加なし**:`@hono/node-server` は使わず Node 標準 `http` で callback を受ける。依存はすでに入っている `zod` だけで token response をパース
+- **PKCE**:`randomBytes(32)` を base64url 化して verifier、SHA-256 して challenge。RFC 7636 準拠
+- **state**:16 bytes 乱数、callback 側で厳密一致を検証(CSRF 対策)
+- **Token 交換**:`POST /oauth2/token` は Basic Auth(`client_id:client_secret`)+ `grant_type=authorization_code`。Fitbit Personal App でも Basic Auth は必須(PKCE 必須ではないが、ここでは両方使って一番堅い形に)
+- **スコープ**:`activity heartrate sleep nutrition profile weight respiratory_rate oxygen_saturation temperature cardio_fitness settings`。将来 ECG や HRV(heartrate に内包)などが増えてもここを伸ばすだけで対応
+- **ブラウザ自動 open**:macOS `open`、Linux `xdg-open`、Windows `start` を best effort。失敗しても URL を stdout に出してあるのでユーザーがコピペ可能
+- **ログ**:access/refresh の中身はマスク(先頭 6 + 末尾 4 + 文字数)。ただし `wrangler kv:key put` の案内では生値を印字する(これを手でコピペする想定で、端末履歴を消す運用は README で注意喚起)
+- Fitbit の `expires_in` は 28800 秒(8 時間)だが、保存する `expires_at` は単純に `now + expires_in` にして、Worker 側で 60 秒前に先読み refresh する(実装は次マイルストーン)
+
+### 挙動確認
+ENV 未設定での早期 exit が意図通り:
+```
+$ env -u FITBIT_CLIENT_ID -u FITBIT_CLIENT_SECRET pnpm run setup:fitbit
+Error: FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET must be set.
+  1. Create a Personal app at https://dev.fitbit.com/apps/new
+     Callback URL: http://127.0.0.1:8787/fitbit/callback
+  ...
+```
+
+実際の OAuth ラウンドトリップは、ユーザーが dev.fitbit.com で Personal App を作成してから:
+```
+$ export FITBIT_CLIENT_ID=XXXXXX
+$ export FITBIT_CLIENT_SECRET=YYYYYY...
+$ pnpm run setup:fitbit
+```
+を実行する。これはリポジトリには残らない一時セッション、かつユーザー側の行動なので、動作確認は Worker 内 `oauth.ts` の refresh と組み合わせた次マイルストーンで初めて実データで検証する。
