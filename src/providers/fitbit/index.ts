@@ -30,8 +30,10 @@ import type {
   WaterLogEntry,
   WeightLog,
 } from '../types';
+import { getActivityTimeSeries, getDailySummary, getExerciseList } from './activity';
 import { FitbitClient } from './client';
 import { listDevices } from './device';
+import { getHeartRateIntraday, getHeartRateRange } from './heart';
 import { getProfile } from './profile';
 
 /**
@@ -55,30 +57,30 @@ export class FitbitProvider implements HealthProvider {
     return listDevices(this.client);
   }
 
-  // ---------- Read: activity (implemented in a later commit) ----------
-  getDailySummary(_date: string): Promise<DailySummary> {
-    return Promise.reject(new Error('not_implemented: getDailySummary'));
+  // ---------- Read: activity ----------
+  getDailySummary(date: string): Promise<DailySummary> {
+    return getDailySummary(this.client, date);
   }
   getActivityTimeSeries(
-    _resource: ActivityResourceT,
-    _start: string,
-    _end: string,
+    resource: ActivityResourceT,
+    start: string,
+    end: string,
   ): Promise<TimeSeries> {
-    return Promise.reject(new Error('not_implemented: getActivityTimeSeries'));
+    return getActivityTimeSeries(this.client, resource, start, end);
   }
-  getExerciseList(_opts: { beforeDate?: string; limit?: number }): Promise<ExerciseLog[]> {
-    return Promise.reject(new Error('not_implemented: getExerciseList'));
+  getExerciseList(opts: { beforeDate?: string; limit?: number }): Promise<ExerciseLog[]> {
+    return getExerciseList(this.client, opts);
   }
 
-  // ---------- Read: heart rate (implemented in a later commit) ----------
-  getHeartRateRange(_start: string, _end: string): Promise<HeartRateDay[]> {
-    return Promise.reject(new Error('not_implemented: getHeartRateRange'));
+  // ---------- Read: heart rate ----------
+  getHeartRateRange(start: string, end: string): Promise<HeartRateDay[]> {
+    return getHeartRateRange(this.client, start, end);
   }
   getHeartRateIntraday(
-    _date: string,
-    _detailLevel: IntradayDetailLevelT,
+    date: string,
+    detailLevel: IntradayDetailLevelT,
   ): Promise<HeartRateIntraday> {
-    return Promise.reject(new Error('not_implemented: getHeartRateIntraday'));
+    return getHeartRateIntraday(this.client, date, detailLevel);
   }
 
   // ---------- Read: sleep / body / nutrition ----------
