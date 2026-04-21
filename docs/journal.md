@@ -223,3 +223,13 @@ curl で initialize を投げて `{"result":{"protocolVersion":"2025-06-18","cap
 - Cache は tool 層で `getCached(env, cacheKey('get_profile'), () => provider.getProfile())` の形で挟む。provider は stateless のまま
 - Output は `structuredContent` + `content: [{type:'text', text: JSON.stringify(...)}]` の両方。2025-06-18 spec の推奨
 - Zod の `ProfileSchema.shape` を outputSchema にそのまま渡す(SDK が JSON Schema に変換して tools/list にも expose)
+
+### 16 read tool 完成
+4 コミットで activity(3) + heart(2) + sleep(2) + body(1) + nutrition(1) + metrics(5)= 14 を足し、計 16 read tool。実機の `tools/list` が以下を返すことを確認:
+
+```
+get_profile / list_devices / get_daily_summary / get_activity_timeseries /
+get_exercise_list / get_heart_rate_range / get_heart_rate_intraday /
+get_sleep / get_sleep_range / get_body_log / get_food_log / get_spo2 /
+get_respiratory_rate / get_skin_temperature / get_hrv / get_cardio_fitness
+```

@@ -5,12 +5,13 @@ import { registerActivityReadTools } from './read/activity';
 import { registerBodyReadTools } from './read/body';
 import { registerDevicesTool } from './read/devices';
 import { registerHeartReadTools } from './read/heart';
+import { registerMetricsReadTools } from './read/metrics';
 import { registerNutritionReadTools } from './read/nutrition';
 import { registerProfileTool } from './read/profile';
 import { registerSleepReadTools } from './read/sleep';
 
 export function registerAllTools(server: McpServer, provider: HealthProvider, env: Env): void {
-  // ---- Read ----
+  // ---- Read (16) ----
   registerProfileTool(server, provider, env);
   registerDevicesTool(server, provider, env);
   registerActivityReadTools(server, provider, env);
@@ -18,7 +19,7 @@ export function registerAllTools(server: McpServer, provider: HealthProvider, en
   registerSleepReadTools(server, provider, env);
   registerBodyReadTools(server, provider, env);
   registerNutritionReadTools(server, provider, env);
+  registerMetricsReadTools(server, provider, env);
 
-  // metrics (SpO2/BR/skin-temp/HRV/cardio-fitness) lands in the next
-  // commit. Write tools land in M8.
+  // Write tools land in M8.
 }
