@@ -71,24 +71,27 @@ export FITBIT_CLIENT_SECRET=<your-client-secret>
 pnpm run setup:fitbit
 ```
 
-ブラウザで承認すると refresh_token が取れて、以降表示される `wrangler secret put` / `wrangler kv:key put` コマンドをコピペして実行:
+ブラウザで承認すると refresh_token が取れて、以降表示される `wrangler secret put` / `wrangler kv key put` コマンドをコピペして実行:
 
 ```bash
-# KV namespace(一回きり)
-pnpm wrangler kv:namespace create TOKENS
-pnpm wrangler kv:namespace create CACHE
-# 返ってきた id を wrangler.toml の対応する箇所に貼り付ける
+# wrangler.toml は .gitignore 対象。テンプレからコピーして自分の値を入れる
+cp wrangler.toml.example wrangler.toml
 
-# Secret
+# KV namespace(一回きり)
+pnpm wrangler kv namespace create TOKENS
+pnpm wrangler kv namespace create CACHE
+# 返ってきた id を wrangler.toml の <your-...-id> に貼り付け
+
+# Secret(MCP_SHARED_SECRET は URL-safe な hex を推奨)
 pnpm wrangler secret put FITBIT_CLIENT_ID
 pnpm wrangler secret put FITBIT_CLIENT_SECRET
-pnpm wrangler secret put MCP_SHARED_SECRET  # openssl rand -base64 32 で生成した値
+openssl rand -hex 32 | pnpm wrangler secret put MCP_SHARED_SECRET
 
-# Fitbit トークン
-pnpm wrangler kv:key put --binding=TOKENS refresh_token '<paste>'
-pnpm wrangler kv:key put --binding=TOKENS access_token '<paste>'
-pnpm wrangler kv:key put --binding=TOKENS expires_at '<paste>'
-pnpm wrangler kv:key put --binding=TOKENS user_id '<paste>'
+# Fitbit トークン(setup:fitbit の出力をそのままコピペ、--remote 重要)
+pnpm wrangler kv key put --remote --binding=TOKENS refresh_token '<paste>'
+pnpm wrangler kv key put --remote --binding=TOKENS access_token  '<paste>'
+pnpm wrangler kv key put --remote --binding=TOKENS expires_at    '<paste>'
+pnpm wrangler kv key put --remote --binding=TOKENS user_id       '<paste>'
 ```
 
 ### 4. デプロイ
@@ -259,12 +262,23 @@ Cloudflare Workers  /mcp/<SECRET>
 
 ---
 
-## 既知の制約
+## 既知の制約(Fitbit API 側の仕様、本実装で対処済みのもの)
 
-- **Food Log Search/Barcode 障害(2025/11〜)**: Fitbit 公式 API の `/foods/search` が不安定。本実装は意図的に `foodName` + `calories` 直書きしか使わない
-- **mealTypeId と Custom Food**: カスタム食品(Create Food で登録)は常に `Anytime` として保存されるとドキュメントにあり、実機挙動は要検証
-- **Intraday 1sec**: 運動記録中以外は 1 秒粒度が保証されない(Fitbit のハードウェア/同期タイミング依存)
-- **Sleep**: v1.2 のみ使用(v1 は deprecated)
+### 食事ログ周り
+- **Search Foods 障害(2025/11〜)**: Fitbit 公式 API の `/foods/search` が不安定。本実装は意図的に `foodName` + `calories` 直書きしか使わない
+- **`POST /foods/log.json` は `unitId` を必須化**(`unitName` は受け付けない)。本実装は foodName モードで `unitId: 304` (= serving) を自動付与
+- **栄養素キー名が非対称**(実測結果、2026-04):
+  - `protein` / `totalFat` / `totalCarbohydrate` / `dietaryFiber` / `sodium` / `sugars` — これらのキー名で送らないと Fitbit 側で無視される
+  - 旧 docs の `nutritionalValues.protein` 形式も、`proteinGrams` / `totalCarbs` 等も 2026-04 時点では効かない
+- **Create Food(カスタム食品)は calories のみ保存**:protein/carbs/fat を送っても silent drop される。本実装は `create_custom_food` を廃止し、栄養素を保持したい場合は **MCP サーバー側プリセット**(`save_meal_preset` + `log_preset`)で foodName 経路に流している
+- **sugar は `get_food_log` の echo に含まれない** — 保存されたかは視認できない
+
+### Intraday(心拍数)
+- **運動ログがある日は Fitbit が intraday の dataset を pruning**することがある(実測:運動日は朝〜夕方の dataset が欠落、運動無しの日は終日揃う)。zone summary は別パイプラインで残るので `get_heart_rate_range` はフォールバックに使える
+- **1sec 粒度**:運動記録中以外は 1 秒粒度が保証されない
+
+### その他
+- **Sleep は v1.2 のみ**(v1 は deprecated)
 - **Claude モバイルから Custom Connector の新規追加は不可**: 必ず claude.ai(Web)から追加
 - **レート制限**: 150 req/h/user。LLM が連続呼び出しする場合に備えて全 read に 1h キャッシュ。429 時は `Retry-After` を 30s までクランプして 1 回リトライ
 
@@ -274,6 +288,7 @@ Cloudflare Workers  /mcp/<SECRET>
 
 - [`docs/research.md`](docs/research.md) — 設計前に行った調査(Fitbit API の現状、MCP / Claude モバイルの仕様、先行実装サーベイ、出典付き)
 - [`docs/journal.md`](docs/journal.md) — 開発ログ(決定理由、ハマり、使用感)
+- [`scripts/diagnose-food-log.ts`](scripts/diagnose-food-log.ts) — Fitbit の foodLog API の挙動(栄養素キー名など)を直接確認するための reproducer。API が再び形を変えた時にパターン追加して実行すれば原因特定できるよう in-tree 保持
 
 ---
 
