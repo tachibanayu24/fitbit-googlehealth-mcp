@@ -28,6 +28,7 @@
   - **Reconciled Stream**(複数ソースを突合、Fitbit アプリ表示と整合)
   - **Device & Manual Log Stream**(生データ、ユーザー手動入力)
 - 認証は **Google OAuth 2.0**。**既存 Fitbit OAuth トークンは移行不可** → 再同意必須
+  - ⚠ 2026-05 訂正: この「再同意必須」は **GH API へ移行する時だけ**の話。**アカウント統合(§2)自体は Fitbit Web API のトークンを無効化しない**(merged アカウントの refresh が 401 なしで通ることを実機確認済み)。詳細は末尾「ローンチ後アップデート(2026-05-31)」
 - 2026/05 末まではブレイキングチェンジの可能性あり。本番ローンチは 5 月末以降推奨
 - Google Fit REST API は 2026 年末までで段階的に終了、新規サインアップは 2024/05/01 以降受付停止
 - Health Connect(Android 上のオンデバイス hub)は **サーバーサイドでクラウドから Fitbit データを取る用途に使えない**。クラウド統合は Google Health API 一択
@@ -154,6 +155,8 @@ Token エンドポイント(`/oauth2/token`)は Server App では `Authorization
 - [Using Subscriptions](https://dev.fitbit.com/build/reference/web-api/developer-guide/using-subscriptions/)
 
 ## 5. 食事ログ書き込みの実情
+
+> ⚠ 2026-05 更新: 以下は **Fitbit Web API** の実情(2026-04 実測)。後継の **Google Health API では 2026-05-26 に nutrition 書き込みが解禁**され、`nutrition-log` 等が create/update/batchDelete に対応した(scope `googlehealth.nutrition.writeonly`)。GoogleHealthProvider 実装時は以下の preset/unitId ワークアラウンドが不要になる可能性が高い。詳細は末尾「ローンチ後アップデート(2026-05-31)」。
 
 ### `POST /1/user/-/foods/log.json`
 
@@ -463,3 +466,61 @@ TheDigitalNinja 版の read 系 12 ツール: `get_weight` / `get_sleep_by_date_
 - [modelcontextprotocol/typescript-sdk](https://github.com/modelcontextprotocol/typescript-sdk)
 - [TheDigitalNinja/mcp-fitbit](https://github.com/TheDigitalNinja/mcp-fitbit)
 - [Why MCP Deprecated SSE (fka.dev)](https://blog.fka.dev/blog/2025-06-06-why-mcp-deprecated-sse-and-go-with-streamable-http/)
+
+---
+
+# ローンチ後アップデート(2026-05-31)
+
+設計前調査(2026-04)から約 5 週間。その間に**消費者向け Google Health アプリが正式ローンチ**(Fitbit アプリの後継)し、開発者向け Google Health API も breaking change を重ねながら前進した。本プロジェクトのデプロイ済みサーバーで実機プローブ + 多角 Web 調査(6 角度 fan-out → 重要主張を独立検証、34/35 を confirmed)を行い、設計前提との差分を確定した。**この節は 2026-04 の調査本文を上書きせず、差分レイヤとして追記している**(記事化のため経緯を残す)。
+
+## A. 結論: いま緊急対応は不要
+
+- **Fitbit Web API(`api.fitbit.com`)は 2026-05-31 時点でまだ稼働中**。デプロイ済み Worker から `get_profile` / `list_devices` が正常応答(`Fitbit Air` が 2026-05-31 同期)。9 月停止は不変、ローンチで前倒し・延期なし
+- 設計の大半(9 月停止、後継は GH API v4、Provider 抽象、Pattern B)は的中。**外れたのは 2 点だけ**: ①GH API の食事書き込みは「未リリース」想定 → もうリリース済み ②「統合=トークン移行で再同意」という概念の混同
+
+## B. 設計前提 vs 現実(差分のみ)
+
+| 前提(§番号) | 判定 | 現実(2026-05-31) |
+|---|---|---|
+| 既存トークン移行不可→再同意(§1, §3) | ⚠ 半分誤り | 「再同意必須」は **GH API へ移行する時だけ**。**アカウント統合(§2)は Fitbit Web API トークンを無効化しない**(Fitbit 公式フォーラム明言 + 本サーバーの merged アカウントで 401 が出ないことを実機確認) |
+| 食事ログ書き込みは未リリース(§5) | ❌ 外れ | **2026-05-26 にリリース**。`nutrition-log` 等が create/update/batchDelete 対応(scope `googlehealth.nutrition.writeonly`) |
+| Reconciled / Device&Manual の 2 系統(§1) | ✅ 概念は的中 | 2 エンドポイントではなく単一リソースの `:reconcile` / `:list` メソッドに集約 |
+| 9 月停止・後継 GH API v4(§1) | ✅ 的中・不変 | dev.fitbit.com に sunset バナー、Google docs(更新 2026-05-26)、Fitbit dev blog「next phase of the Fitbit Web API」(~5/27)で再確認 |
+| 統合 5/19・削除 7/15(§2) | ✅ 的中 | 5/19 は延長なしで通過、7/15 削除も予定通り。support docs が `support.google.com/fitbit/` → `/googlehealth/` に移動 |
+
+## C. 消費者向け Google Health アプリ(新情報)
+
+- 2026-05-07 発表、2026-05-19〜05-26 にロールアウト。**Fitbit アプリの in-place リブランド**(v5.0、Android+iOS、モバイルのみ。Web/デスクトップ dashboard なし)
+- 既存データ・デバイス・Premium は merged アカウントなら自動継承
+- 新規: Gemini 製「Google Health Coach」(Premium)、4 タブ再編(Today/Fitness/Sleep/Health)、画面なし $99.99 トラッカー「**Fitbit Air**」
+- 削除: ソーシャル/Groups、Sleep Profile、バッジ、ストレスグラフ → ユーザー反発。食事トラッカーも機能後退(カロリー目標 Food Plan 廃止、カスタム食品の作成/閲覧/ログがロードマップ送り)
+
+## D. 開発者向け Google Health API(移行設計に効く具体)
+
+- base `https://health.googleapis.com/v4`、package `google.devicesandservices.health.v4`。正式 "GA" 表記はなく "actively evolving"(5/26 にも breaking change)
+- 汎用エンドポイント `users.dataTypes.dataPoints` に集約: `:list`(生 device/manual)/ `:reconcile`(突合済)/ `create` / `patch` / `batchDelete`
+- **2026-05-26 にスコープ分割**: `.readonly` / `.writeonly`(例 `googlehealth.nutrition.writeonly`)。ECG/IRN の readonly も追加
+- **書き込み解禁**: weight/body-fat/sleep/exercise は 2026-03-24 ローンチ時から、hydration/nutrition は 5/26 から書き込み可。→ GoogleHealthProvider では Fitbit 側 PFC preset ワークアラウンド(§5)が不要になる可能性
+- **Read はほぼ like-for-like**: HRV(RMSSD)/SpO2/睡眠ステージ/VO2max に直接対応。注意点 2 つ:
+  - intraday は「ネイティブ ~5 秒サンプル」を `dataPoints.list` + RFC3339 秒精度フィルタで取得。**`1sec/5min/15min` の detailLevel バケットは無く、クライアント側ダウンサンプルが必要**
+  - 皮膚温は日次 + **絶対 ℃**(Fitbit は相対値)→ スキーマ意味論の差
+- **Pattern B は移行後も生存**。ただし Google OAuth 同意画面を **"In production" に publish 必須**(デフォルト "Testing" は refresh token が 7 日失効 → 無人 Worker refresh が壊れる)。verification(CASA)は 100 ユーザー超で初めて必要、単一ユーザーは未 verified-production のままで長命トークン可
+- **Dual-run window**: 9 月停止まで両 API が同一データを返す → 段階移行が可能
+
+## E. このプロジェクトへの影響
+
+- **いま: 対応不要**。9 月まで現状の Fitbit Web API 実装で動き続ける
+- **移行時: like-for-like の段階移行**で済む見込み(`HealthProvider` 抽象 + Pattern B が正しかった、作り直し不要)
+- **着手の最適タイミングは GH API 安定後の ~2026-08**(今は "動く的"。5/26 もスコープ分割 breaking change があった)
+- ユーザー実益として唯一はっきりしているのは **食事ログ書き込みのクリーン化**(現 `log_meal_photo` の preset/unitId ワークアラウンドが消える可能性)。read 主体なら移行はほぼ強制メンテ
+
+出典:
+- [Google Health app (blog.google, 2026-05-07)](https://blog.google/products-and-platforms/products/google-health/google-health-app/)
+- [Google Health roadmap / Fitbit backlash (9to5google, 2026-05-27)](https://9to5google.com/2026/05/27/google-health-roadmap-fitbit-backlash/)
+- [Fitbit Air / faster rollout (9to5google, 2026-05-26)](https://9to5google.com/2026/05/26/google-health-fitbit-air-faster-rollout/)
+- [Google Health API - Migration guide(更新 2026-05-26)](https://developers.google.com/health/migration)
+- [Google Health API - Scopes](https://developers.google.com/health/scopes)
+- [Google Health API - Setup(refresh token / publishing status)](https://developers.google.com/health/setup)
+- [Google Health API - dataPoints reference](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints)
+- [Fitbit dev forum: Introducing the next phase of the Fitbit Web API](https://community.fitbit.com/t5/Web-API-Development/Introducing-the-next-phase-of-the-Fitbit-Web-API/td-p/5821061)
+- [Fitbit dev forum: Authorization with Migration to Google Accounts](https://community.fitbit.com/t5/Web-API-Development/Authorization-with-Migration-to-Google-Accounts/td-p/5403265)
