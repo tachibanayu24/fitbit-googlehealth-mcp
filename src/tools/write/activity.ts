@@ -1,11 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Env } from '../../env';
-import { cacheKey, invalidate } from '../../lib/cache';
-import { assertIsoDate, todayJst } from '../../lib/date';
+import { bumpCacheGeneration, cacheKey, invalidate } from '../../lib/cache';
+import { assertIsoDate, today } from '../../lib/date';
 import { toolErrorResult } from '../../lib/errors';
 import type { HealthProvider } from '../../providers/types';
 import { ExerciseLogSchema } from '../../providers/types';
+import { DAILY_SUMMARY_CACHE, EXERCISE_LIST_CACHE } from '../read/activity';
 
 const TIME_RE = /^\d{2}:\d{2}:\d{2}$/;
 
@@ -21,7 +22,7 @@ export function registerActivityWriteTool(
       description:
         'Record a workout that Fitbit did not auto-detect. Provide either `activityId` (Fitbit activity catalog) or `activityName` + `manualCalories`. Duration must be in milliseconds.',
       inputSchema: {
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
         startTime: z.string().regex(TIME_RE, 'Expected HH:mm:ss').describe('HH:mm:ss, local time.'),
         durationMs: z
           .number()
@@ -45,7 +46,7 @@ export function registerActivityWriteTool(
     },
     async (input) => {
       try {
-        const date = input.date ?? todayJst();
+        const date = input.date ?? today();
         assertIsoDate(date, 'date');
         if (!input.activityId && !input.activityName) {
           throw new RangeError('Either activityId or activityName must be provided.');
@@ -54,11 +55,10 @@ export function registerActivityWriteTool(
           throw new RangeError('manualCalories is required when using activityName.');
         }
         const entry = await provider.logActivity({ ...input, date });
-        await invalidate(
-          env,
-          cacheKey('get_daily_summary', { date }),
-          cacheKey('get_exercise_list', { beforeDate: date }),
-        );
+        await Promise.all([
+          invalidate(env, cacheKey(DAILY_SUMMARY_CACHE, { date })),
+          bumpCacheGeneration(env, EXERCISE_LIST_CACHE),
+        ]);
         return {
           structuredContent: entry,
           content: [{ type: 'text', text: JSON.stringify(entry, null, 2) }],
@@ -87,13 +87,12 @@ export function registerActivityWriteTool(
     async ({ logId, date }) => {
       try {
         await provider.deleteActivityLog(logId);
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
-        await invalidate(
-          env,
-          cacheKey('get_daily_summary', { date: d }),
-          cacheKey('get_exercise_list', { beforeDate: d }),
-        );
+        await Promise.all([
+          invalidate(env, cacheKey(DAILY_SUMMARY_CACHE, { date: d })),
+          bumpCacheGeneration(env, EXERCISE_LIST_CACHE),
+        ]);
         return {
           structuredContent: { deleted: true, logId },
           content: [{ type: 'text', text: `Deleted activity log ${logId}.` }],

@@ -1,302 +1,394 @@
 # fitbit-googlehealth-mcp
 
-> Fitbit の広範なヘルスデータを取得し、食事写真から食事ログを書き込める **Model Context Protocol (MCP) サーバー**。TypeScript 実装、Cloudflare Workers にデプロイ。Claude モバイル / Claude Desktop / Claude.ai から接続して使えます。
+> A **Model Context Protocol (MCP) server** for your Google Health data (Fitbit's successor). Reads your health metrics and writes food, weight, activity and sleep logs. TypeScript, deployed to Cloudflare Workers, connected to Claude Desktop / mobile / claude.ai as a custom connector.
 
-個人利用前提の設計で、fork してあなた自身の Fitbit アプリ + Cloudflare アカウントで独立運用できます。
-
-## 何ができる
-
-- **Fitbit データの取得**(Read tool 16 個)
-  - Activity(歩数・距離・カロリー・運動ログ)
-  - Heart Rate(日別 + 1秒〜15分の Intraday)
-  - Sleep v1.2(stage 含む)
-  - Body(体重・体脂肪・BMI)
-  - Nutrition(食事ログ・水分)
-  - SpO2 / 呼吸数 / 皮膚温 / HRV / VO2 Max
-  - デバイス情報
-- **書き込み**(Write tool 8 個)
-  - 食事(`log_food`・日本語 OK)
-  - 水分・体重・体脂肪・活動・睡眠の手動ログ
-  - `delete_food_log` で個別エントリ取り消し
-- **⭐ `log_meal_photo`**: Claude モバイルで食事写真を添付 → Claude が視覚解析して栄養を推定 → 一括で Fitbit 食事ログに記録
+Built for single-user personal use: fork it and run it on your own Google Cloud project and Cloudflare account.
 
 ---
 
-## ⚠ 2026/09 の Fitbit Web API 停止について
+## Status — read this first
 
-Fitbit は **2026 年 9 月**に既存の Web API(`api.fitbit.com`)を完全停止し、後継の [Google Health API](https://developers.google.com/health)(`health.googleapis.com/v4`)に移行します。
+The legacy **Fitbit Web API (`api.fitbit.com`) is being decommissioned in September 2026**, and Google is no longer issuing new Fitbit developer accounts. This server therefore targets the **Google Health API** (`health.googleapis.com/v4`) by default.
 
-- 既存の Fitbit OAuth トークンは **移行不可** → Google OAuth で再同意が必要
-- あわせて、Fitbit アカウント自体を **2026/05/19 までに Google Account に統合**必要(未統合は 2026/07/15 にデータ削除)
-- 本実装は **Provider-agnostic 設計** を採っており、停止前に Google Health API 実装(`src/providers/google-health/`)を追加して差し替え予定
+| | |
+|---|---|
+| **Default backend** | Google Health API v4 (`HEALTH_PROVIDER=google`) |
+| **Legacy backend** | Fitbit Web API, still present behind `HEALTH_PROVIDER=fitbit`, on borrowed time |
+| **Written against** | v4 discovery document, revision **20260909** |
 
-詳細は [`docs/research.md`](docs/research.md) を参照。
-
----
-
-## 前提
-
-- **Fitbit アカウント**(Google Account と統合済みが望ましい)
-- **Fitbit Personal App**(dev.fitbit.com で作成、callback `http://127.0.0.1:8787/fitbit/callback`)
-- **Cloudflare アカウント**(無料プランで十分)
-- **Claude.ai アカウント**(Web から Custom Connector を追加、モバイルに自動同期)
-- **Node.js 20+ / pnpm 9+**(ローカルビルド用)
+Verified against live Google Health data on 2026-09-10: all 17 read methods return real
+values from a Fitbit Air. `pnpm run verify:provider` re-runs that check against your own
+account, and `pnpm run probe:google` dumps the raw API shapes if you need to debug a
+specific data type.
 
 ---
 
-## セットアップ(5 ステップ)
+## What it does
 
-### 1. Clone + install
+- **Read** (16 tools) — activity and steps, heart rate (daily + intraday), sleep with stages, weight and body fat, food and water logs, SpO2, respiratory rate, skin temperature, HRV, VO2 max, paired devices.
+Write, delete and meal-preset tools are **off by default** (see [Read-only by default](#read-only-by-default)).
+
+- **Write** (7 tools) — food, water, weight, body fat, activity and sleep logs.
+- **Delete** (6 tools) — remove individual entries.
+- **Meal presets** (4 tools) — reusable nutrition profiles stored in Workers KV.
+- **⭐ `log_meal_photo`** — attach a meal photo in Claude, Claude estimates the nutrition visually, and the items are written to your food log in one call.
+
+---
+
+## Prerequisites
+
+- A **Google account** holding your health data (a Fitbit account merged into Google).
+- A **Google Cloud project** with the Google Health API enabled — free.
+- A **Cloudflare account** — the free plan is enough.
+- A **Claude account** — custom connectors must be added from claude.ai on the web, then sync to mobile.
+- **Node.js 20+** and **pnpm 11+** locally (`pnpm-workspace.yaml` uses `allowBuilds`).
+- **macOS or Linux** for `setup:google` (it calls `pnpm` without a shell, which does not work on Windows).
+
+You do **not** need a Fitbit developer account. If you already made one, it is only useful for the legacy `HEALTH_PROVIDER=fitbit` path, which stops working this month.
+
+---
+
+## Setup
+
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/tachibanayu24/fitbit-googlehealth-mcp.git
+git clone <your-fork-url>
 cd fitbit-googlehealth-mcp
 pnpm install
 ```
 
-### 2. Fitbit Personal App 作成
+### 2. Create the Google Cloud project
 
-[dev.fitbit.com/apps/new](https://dev.fitbit.com/apps/new) で **Personal** タイプのアプリを作成:
-- **OAuth 2.0 Application Type**: Personal
-- **Callback URL**: `http://127.0.0.1:8787/fitbit/callback`
+1. **Create or pick a project** — https://console.cloud.google.com/projectcreate
+2. **Enable the Google Health API** — https://console.cloud.google.com/apis/api/health.googleapis.com
+3. **Configure the OAuth consent screen** — https://console.cloud.google.com/auth/audience
+   - User type: **External**
+   - Add your own Google account under **Test users**
+   - **Publish the app so its status is "In production".** This matters: while the app sits in *Testing*, Google expires refresh tokens after **7 days**, and the Worker will break every week. Publishing does *not* require Google's security review — that is only needed above 100 users.
+4. **Add the scopes** — https://console.cloud.google.com/auth/scopes — search "Google Health API" and add the **read** scopes for activity & fitness, health metrics & measurements, sleep, nutrition, profile and settings. Add the write scopes too only if you plan to use write tools (see [Read-only by default](#read-only-by-default)).
+5. **Create an OAuth client ID** — https://console.cloud.google.com/apis/credentials
+   - Application type: **Desktop app**
+   - Copy the **Client ID** and **Client secret**
 
-発行された `Client ID` と `Client Secret` を控える。
-
-### 3. 初回認可と Cloudflare への投入
-
-```bash
-# 認可フローを開始(ブラウザが開く)
-export FITBIT_CLIENT_ID=<your-client-id>
-export FITBIT_CLIENT_SECRET=<your-client-secret>
-pnpm run setup:fitbit
-```
-
-ブラウザで承認すると refresh_token が取れて、以降表示される `wrangler secret put` / `wrangler kv key put` コマンドをコピペして実行:
+### 3. Prepare Cloudflare
 
 ```bash
-# wrangler.toml は .gitignore 対象。テンプレからコピーして自分の値を入れる
+pnpm wrangler login
+
 cp wrangler.toml.example wrangler.toml
+# then check TIMEZONE in wrangler.toml — it decides what "today" means for
+# every tool with an optional date. Ships as "Europe/London".
 
-# KV namespace(一回きり)
 pnpm wrangler kv namespace create TOKENS
 pnpm wrangler kv namespace create CACHE
-# 返ってきた id を wrangler.toml の <your-...-id> に貼り付け
+# paste the returned ids into wrangler.toml
 
-# Secret(MCP_SHARED_SECRET は URL-safe な hex を推奨)
-pnpm wrangler secret put FITBIT_CLIENT_ID
-pnpm wrangler secret put FITBIT_CLIENT_SECRET
-openssl rand -hex 32 | pnpm wrangler secret put MCP_SHARED_SECRET
-
-# Fitbit トークン(setup:fitbit の出力をそのままコピペ、--remote 重要)
-pnpm wrangler kv key put --remote --binding=TOKENS refresh_token '<paste>'
-pnpm wrangler kv key put --remote --binding=TOKENS access_token  '<paste>'
-pnpm wrangler kv key put --remote --binding=TOKENS expires_at    '<paste>'
-pnpm wrangler kv key put --remote --binding=TOKENS user_id       '<paste>'
+pnpm wrangler secret put GOOGLE_CLIENT_ID
+pnpm wrangler secret put GOOGLE_CLIENT_SECRET
 ```
 
-### 4. デプロイ
+Now create the shared secret. It is part of the connector URL, so it works like a password: save it in your password manager, then paste it at the prompt.
+
+```bash
+openssl rand -hex 32
+pnpm wrangler secret put MCP_SHARED_SECRET
+```
+
+### 4. Authorize
+
+Copy the template and paste your two values into it:
+
+```bash
+cp .env.example .env      # macOS / Linux / Git Bash
+copy .env.example .env    # Windows cmd / PowerShell
+```
+
+```ini
+# .env
+GOOGLE_CLIENT_ID=1234567890-abc123.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-your-secret-here
+```
+
+No quotes, no trailing spaces. `.env` is gitignored. Then:
+
+```bash
+pnpm run setup:google
+```
+
+Your browser opens Google's consent screen. Approve it, and the script writes the tokens straight into the `TOKENS` KV namespace. It never prints them, so they do not end up in your shell history. Add `-- --write` to also request write scopes, or `-- --location` to allow TCX export (GPS routes).
+
+<details>
+<summary>Prefer environment variables to a file?</summary>
+
+The script reads real environment variables first, so these work too — the syntax just differs per shell:
+
+```powershell
+# PowerShell
+$env:GOOGLE_CLIENT_ID = "..."
+$env:GOOGLE_CLIENT_SECRET = "..."
+```
+```bash
+# bash / zsh / Git Bash
+export GOOGLE_CLIENT_ID=...
+export GOOGLE_CLIENT_SECRET=...
+```
+```bat
+:: Windows cmd
+set GOOGLE_CLIENT_ID=...
+set GOOGLE_CLIENT_SECRET=...
+```
+</details>
+
+Consent is collected here, in a real browser, on purpose: Google blocks OAuth inside embedded WebViews (`disallowed_useragent`), which is what Claude mobile would use.
+
+### 5. Deploy
 
 ```bash
 pnpm deploy
-# → https://fitbit-googlehealth-mcp.<your-sub>.workers.dev
+# → https://fitbit-googlehealth-mcp.<your-subdomain>.workers.dev
 ```
 
-### 5. Claude.ai に Custom Connector として登録
+### 6. Add to an MCP client
 
-1. [claude.ai](https://claude.ai) で Settings → Connectors → **Add Custom Connector**
-2. URL に `https://fitbit-googlehealth-mcp.<your-sub>.workers.dev/mcp/<MCP_SHARED_SECRET>` を貼る
-3. 認証方式は **OAuth なし**(URL に secret を埋め込んでいるため)
-4. 保存すると Claude モバイル / Desktop / Web に自動同期される
+1. On [claude.ai](https://claude.ai): Settings → Connectors → **Add custom connector** (or the equivalent in your MCP client)
+2. URL: `https://fitbit-googlehealth-mcp.<your-subdomain>.workers.dev/mcp`
+3. Authentication: a request header — `Authorization: Bearer <MCP_SHARED_SECRET>` (an `X-API-Key` header with the same secret also works)
+4. Save; it syncs to Claude Desktop and mobile automatically
 
-モバイルで新規会話を開き、`+` → Connectors → **Fitbit** を ON にして完了。
+New connectors cannot be added from Claude mobile — use the web.
 
----
+### Read-only by default
 
-## ツール一覧
+The server exposes only read tools, and `setup:google` asks Google only for read scopes. With no write scopes, Google itself rejects every write and delete, even if the connector URL leaks. To enable writes:
 
-### Read(16)
+1. Run `pnpm run setup:google -- --write` and approve the extra scopes.
+2. Set `ENABLE_WRITE_TOOLS = "true"` in `wrangler.toml`.
+3. `pnpm deploy`.
 
-| Tool | 引数 | 概要 |
-|---|---|---|
-| `get_profile` | — | プロフィール(単位系・身長・タイムゾーン) |
-| `list_devices` | — | デバイス一覧(バッテリ、最終同期時刻) |
-| `get_daily_summary` | `date?` | 歩数・カロリー・心拍ゾーン・active minutes |
-| `get_activity_timeseries` | `resource, start, end` | steps / distance / calories 等の時系列 |
-| `get_exercise_list` | `beforeDate?, limit?` | 運動ログ履歴 |
-| `get_heart_rate_range` | `start, end` | 日別心拍(resting + zones) |
-| `get_heart_rate_intraday` | `date, detailLevel` | Intraday(1sec/1min/5min/15min) |
-| `get_sleep` | `date?` | Sleep v1.2(stage 含む) |
-| `get_sleep_range` | `start, end` | 期間 Sleep |
-| `get_body_log` | `start, end` | 体重 + 体脂肪 |
-| `get_food_log` | `date?` | 食事ログ + 水分 + 栄養サマリ |
-| `get_spo2` | `start, end` | 血中酸素飽和度 |
-| `get_respiratory_rate` | `start, end` | 呼吸数 |
-| `get_skin_temperature` | `start, end` | 皮膚温(nightly relative) |
-| `get_hrv` | `start, end` | HRV(RMSSD) |
-| `get_cardio_fitness` | `date?` | Cardio Fitness Score(VO2 Max) |
+### Keep the URL secret
 
-### Write(7)
-
-| Tool | 引数 | 概要 |
-|---|---|---|
-| `log_food` | `foodName, calories, mealType, date?, nutritionalValues?` | 食事を 1 件記録(日本語 OK、PFC 保持) |
-| `log_meal_photo` | `mealType, items[], date?, notes?` | **写真解析結果を一括で記録**(Claude が視覚解析 → items を渡す前提) |
-| `log_water` | `amountMl, date?` | 水分(ml) |
-| `log_weight` | `weightKg, date?, time?` | 体重 |
-| `log_body_fat` | `fatPercent, date?, time?` | 体脂肪率 |
-| `log_activity` | `activityId or activityName+manualCalories, startTime, durationMs, date?, distanceKm?` | 手動で運動ログ |
-| `log_sleep` | `startTime, durationMs, date?` | 手動で睡眠ログ |
-
-### Delete(6)
-
-| Tool | 引数 | 概要 |
-|---|---|---|
-| `delete_food_log` | `logId, date?` | 食事エントリ削除 |
-| `delete_water_log` | `logId, date?` | 水分エントリ削除 |
-| `delete_weight_log` | `logId, date?` | 体重エントリ削除 |
-| `delete_body_fat_log` | `logId` | 体脂肪エントリ削除 |
-| `delete_activity_log` | `logId, date?` | 運動ログ削除 |
-| `delete_sleep_log` | `logId, date?` | 睡眠ログ削除 |
-
-### Meal preset(4)
-
-作り置き用の再利用可能な栄養プロファイルを MCP サーバー側(Workers KV)に保存して、ログ時に栄養素込みで Fitbit へ投入する仕組み。Fitbit の Create Food API は栄養素を保存しない仕様なので、PFC 追跡にはこちらを使う。
-
-| Tool | 引数 | 概要 |
-|---|---|---|
-| `save_meal_preset` | `name, calories, protein?, carbs?, fat?, fiber?, sodium?, sugar?, notes?` | preset を保存(同名で上書き) |
-| `list_meal_presets` | — | 保存済み preset 一覧 |
-| `log_preset` | `name, mealType, date?, amount?` | preset を今日/指定日の食事ログに記録 |
-| `delete_meal_preset` | `name` | preset 削除(既存 log には影響なし) |
-
-全 `date?` は省略時 **JST の今日** にフォールバック。Tool 総数 33(Read 16 + Write 7 + Delete 6 + Preset 4)。
+The Anthropic CIDR allowlist lets through every Claude user, not only you. So the secret in the URL is the only thing that keeps others out. Do not paste the URL into chats or screenshots. `wrangler tail` and Cloudflare request logs also show the full path. If the URL leaks, rotate the secret with `wrangler secret put MCP_SHARED_SECRET` and update the connector.
 
 ---
 
-## 使用例
+## Where secrets live
 
-### 写真で食事記録
-> 🤳 モバイルで昼食の写真を添付  
-> 🧑 「これを lunch で記録して」  
-> 🤖 Claude が視覚解析 → `log_meal_photo` を呼ぶ  
->
-> ```
-> Logged 3 item(s) for Lunch on 2026-04-22:
->   • 親子丼(1人前、推定 680 kcal、高信頼度)
->   • 味噌汁(1杯、推定 40 kcal、中信頼度)
->   • 小鉢(ほうれん草、推定 60 kcal、中信頼度)
-> ```
+Three separate places, for three separate purposes. This trips people up, so:
 
-### 睡眠の分析
-> 🧑 「昨日の睡眠を見せて」  
-> 🤖 Claude が `get_sleep` を呼び、stage の内訳や minutesAsleep / efficiency を要約
+| Purpose | Where | How it gets there |
+|---|---|---|
+| Running the local helper scripts (`setup:google`, `probe:google`) | `.env` in the repo root | You create it from `.env.example`. Gitignored. |
+| The **deployed** Worker on Cloudflare | Cloudflare Workers Secrets | `pnpm wrangler secret put GOOGLE_CLIENT_ID` — encrypted at rest, never in the repo |
+| Running the Worker locally with `pnpm dev` | `.dev.vars` in the repo root | You create it. Gitignored. |
 
-### 活動トレンド
-> 🧑 「先週の歩数どうだった?」  
-> 🤖 `get_activity_timeseries(resource: "steps", start: ..., end: ...)` → 週平均・目標達成率を計算
+The deployed Worker **never reads `.env`** — Cloudflare doesn't upload it. If you skip
+`wrangler secret put`, the Worker deploys fine and then fails at runtime with a
+`GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set` error.
 
----
+Your Google **refresh token** is not in any of these. It lives in the Workers KV `TOKENS`
+namespace, put there by `setup:google` in step 4.
 
-## ローカル開発
+## Verifying
 
 ```bash
-# ローカルで Worker 起動(local KV、local secret)
-echo 'MCP_SHARED_SECRET=dev-secret' > .dev.vars
-pnpm dev
-
-# Lint / Format / Typecheck / Test
-pnpm lint
-pnpm format
-pnpm typecheck
-pnpm test
-
-# MCP Inspector で tool schema 確認
-npx @modelcontextprotocol/inspector
-# URL: http://127.0.0.1:8787/mcp/dev-secret
-# CF-Connecting-IP ヘッダで 160.79.104.5 を送る設定が必要
+# against the token the deployed Worker is using (the token is not echoed)
+GOOGLE_ACCESS_TOKEN=$(pnpm -s wrangler kv key get --remote --binding=TOKENS google_access_token) \
+  pnpm run probe:google
 ```
+
+The probe is read-only. For each endpoint it prints `✓` with the value fields that came back, `·` if reachable but empty, or `✗` with the API's error. A `403` means that scope was not granted — add it on the Data Access page and re-run `setup:google`.
+
+To check the provider itself rather than the raw API — that every read method returns
+sensible values, not `undefined` from a wrong field path:
+
+```bash
+GOOGLE_ACCESS_TOKEN=$(pnpm -s wrangler kv key get --remote --binding=TOKENS google_access_token) \
+  pnpm run verify:provider
+```
+
+It calls all 17 read methods against your live account and prints a preview of each
+result. Read-only; it never writes or deletes. The stored access token lasts about an
+hour; if it returns 401, call any tool through Claude once so the Worker refreshes it.
 
 ---
 
-## アーキテクチャ
+## Tools
+
+### Read (19)
+
+| Tool | Arguments | Notes |
+|---|---|---|
+| `get_profile` | — | Identity, units, timezone |
+| `list_devices` | — | Paired devices, battery, last sync |
+| `get_daily_summary` | `date?` | Steps, calories, distance, active minutes, resting HR |
+| `get_activity_timeseries` | `resource, start, end` | steps / distance / calories / floors / active-minute levels |
+| `get_exercise_list` | `from?, to?, beforeDate?, limit?, min_duration_seconds?` | Workout sessions with UTC and local times, active duration, GPS and lap flags. Records shorter than `min_duration_seconds` (default 60) are hidden; with `0`, records under 60 s come back with `suspected_accidental: true` |
+| `get_heart_rate_range` | `start, end` | Daily resting heart rate and heart-rate zones with bounds |
+| `get_heart_rate_intraday` | `date, detailLevel, start_time?, end_time?, fields?` | One local day, 00:00–24:00 in the profile timezone, or a part of it (`HH:MM`). `1sec` returns every raw sample (about one every 2–5 s); a full day is about 3 MB, so narrow it or use `fields: compact` |
+| `get_heart_rate_range_intraday` | `start, end, resolution?, fields?` | Any window up to 24 h. `start`/`end` need an offset (`+05:00` or `Z`); `end` is inclusive to the second. Resolution `raw` (default), `5s`, `15s`, `1min`; buckets carry avg, min and max |
+| `get_exercise_heart_rate` | `exerciseId? \| logId + date?, resolution?, padding_minutes?, max_hr?, custom_zones?, plan?, work_label?, include_points?, fields?` | Heart rate of one workout: series (default `5s`), summary with the longest gap, time in zones, events, laps, and heart rate per plan segment with HRR60 |
+| `export_exercise_tcx` | `exerciseId? \| logId + date?, partial_data?, max_chars?` | Garmin TCX file of a workout. Needs the optional location scope, see below |
+| `get_sleep` | `date?` | Sessions with stage breakdown |
+| `get_sleep_range` | `start, end` | |
+| `get_body_log` | `start, end` | Weight and body fat |
+| `get_food_log` | `date?` | Food and water with macros |
+| `get_spo2` | `start, end` | |
+| `get_respiratory_rate` | `start, end` | |
+| `get_skin_temperature` | `start, end` | Deviation from baseline |
+| `get_hrv` | `start, end` | |
+| `get_cardio_fitness` | `date?` | VO2 max |
+
+### Notes on heart-rate tools
+
+- **Every time comes as a pair:** `time_utc` (`…Z`) and `time_local` (wall clock with its offset). The timezone comes from the Google profile settings.
+- **Zone bounds are computed.** The API reports zone minutes but no bpm bounds. The server uses the Fitbit Karvonen method: Fat Burn from 40 %, Cardio from 60 %, Peak from 85 % of heart-rate reserve (max − resting). Max is `max_hr` if you pass it, else 220 − age from the profile; resting is the latest resting heart rate up to that day (7-day lookback; in `get_heart_rate_range`, that day's own value). If max − resting is below 20 bpm, the server gives no bounds. Such zones carry `source: "computed"`. The top zone (Peak, Bevel Zone 5) ends at max heart rate.
+- **Out of Range minutes are computed.** Google gives zone minutes only for Fat Burn, Cardio and Peak (`minutesSource: "google"`). The server counts the minutes with heart-rate data from a 1-minute rollup; Out of Range = those minutes minus the other three zones (`minutesSource: "computed"`). `minutesWithoutHeartRate` is the rest of the day, so all zone minutes plus it equal the day length (for today, the minutes so far). If Google zone minutes are more than the minutes with data, Out of Range is 0 and the sum is a little longer. On live data these bounds match the zone times Google stores with a workout to within about a minute.
+- **Zones in `get_exercise_heart_rate`.** `timeInZones` uses the bounds above. `zones.google` holds the zone times that Google stores with the workout (whole minutes). `zones.bevel` uses the Bevel default: percent of max heart rate (restorative < 50 %, zones 1–5 from 50/60/70/80/90 %, rounded up like the Bevel app). `custom_zones` takes your own lower bounds (for example from your app) and gives `zones.custom`: each zone ends 1 bpm below the next one, the last one at max heart rate, and time below the first bound goes to an extra zone "Below <first name>". Time in zone is weighted by the gap to the next sample; a gap counts at most 30 s.
+- **Plan segments in `get_exercise_heart_rate`.** `plan` is a workout plan such as `5w 3r [3r 3w]x4 8w 5w`: a number is minutes (`1.5r` or `1:30r` = 90 s), letters are a label, and `[ ... ]xN` repeats a group. Segments follow each other from the workout start in active time, so pauses are skipped, and samples recorded during a pause are left out; a segment that the workout cuts short has `cutShort: true`, and `unplannedTailSec` is the workout time after the plan. Each segment has `peak`, `avg`, `min` and `end` (its last sample). `plan.recovery.hrr60` is the drop from the last sample of the last `work_label` segment (default `r`, case does not matter) to the sample nearest to 60 s later. With `include_points: false`, the answer has no series and stays small.
+- **`fields: compact`** sends points as `[time_local, bpm]` without the offset and gives the offset once as `utcOffset`. It is about 4 times smaller.
+- **Cache.** Past days are cached for 1 hour, today and later for 5 minutes.
+- **TCX needs one more scope.** Run `pnpm run setup:google -- --location` to add `googlehealth.location.readonly`, and add that scope on the Data Access page of your OAuth consent screen. Without it, `export_exercise_tcx` returns HTTP 403 with a hint.
+
+### Write (7)
+
+`log_food` · `log_meal_photo` · `log_water` · `log_weight` · `log_body_fat` · `log_activity` · `log_sleep`
+
+### Delete (6)
+
+`delete_food_log` · `delete_water_log` · `delete_weight_log` · `delete_body_fat_log` · `delete_activity_log` · `delete_sleep_log`
+
+### Meal presets (4)
+
+`save_meal_preset` · `list_meal_presets` · `log_preset` · `delete_meal_preset`
+
+33 tools total; 16 by default, because write, delete and preset tools need `ENABLE_WRITE_TOOLS = "true"`. Every optional `date` falls back to today.
+
+---
+
+## Insights and dashboard
+
+For the Google provider, the server also registers four Whoop-style insight tools
+(`get_whoop_scores`, `get_day_snapshot`, `get_trends`, `get_body_age`) built from the read
+data, plus a password-protected mobile dashboard at `/app` (`DASHBOARD_PASSWORD` secret).
+Two optional settings shape them, both settable in `wrangler.toml`:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `TIMEZONE` | UTC | What "today" means for the report and every optional `date` |
+| `BIRTH_DATE` | unset | `YYYY-MM-DD`. When set, the report shows real and body age, the age HRV norm and the age VO2 estimate. When unset, all age-based output is skipped |
+| `SLEEP_WAKE_TIME` | `07:00` | `HH:MM` default wake-up alarm used by the sleep plan and bedtime planner |
+
+---
+
+## Architecture
 
 ```
 Claude mobile / Desktop / Web
-      │ (public URL: Streamable HTTP)
+      │ (public URL, Streamable HTTP)
       ▼
 Anthropic Cloud  (outbound CIDR 160.79.104.0/21)
       │
       ▼
-Cloudflare Workers  /mcp/<SECRET>
-  ├─ guard middleware  (SECRET + CIDR allowlist)
+Cloudflare Workers  /mcp
+  ├─ guard middleware  (bearer secret + CIDR allowlist)
   ├─ @hono/mcp  Streamable HTTP transport
   └─ McpServer
        ├─ HealthProvider interface
-       │   └─ FitbitProvider
-       │       ├─ OAuth refresh (Workers KV: TOKENS)
-       │       └─ FitbitClient (fetch wrapper, 401/429 retry)
+       │   ├─ GoogleHealthProvider   ← default
+       │   │   ├─ Google OAuth refresh (Workers KV: TOKENS)
+       │   │   └─ GoogleHealthClient (pagination, 401/429 retry)
+       │   └─ FitbitProvider          ← legacy, sunsetting
        └─ tools/read/*, tools/write/*
             └─ getCached → Workers KV: CACHE  (TTL 1h)
 ```
 
-- **Provider 抽象**: 2026/09 以降、`GoogleHealthProvider` に差し替えて継続運用
-- **Cache**: Read 結果を KV に 1h キャッシュ、Fitbit の 150/h/user 制限を温存
-- **画像は MCP サーバーを通らない**: Claude が視覚解析して `items[]` を引数として渡す
+Images never reach the server: Claude analyses the photo and passes structured `items[]`.
 
 ---
 
-## セキュリティ
+## Notes on the Google Health API
 
-**個人用シンプル認証** の構成です。
+Things that differ from Fitbit and cost time if you hit them cold:
 
-- **SECRET + Anthropic CIDR の 2 層防御**:
-  1. URL パス末尾の `<MCP_SHARED_SECRET>` が一致しなければ 401(constant-time 比較)
-  2. `CF-Connecting-IP` が `ALLOWED_CIDRS` env の CIDR のいずれにも属さなければ 403
-- Anthropic outbound CIDR は公開情報 `160.79.104.0/21`。claude.ai 経由のリクエストだけを通す
-- `MCP_SHARED_SECRET` は Workers Secret に保管、コードには入れない
-- ローテーションは `wrangler secret put` + claude.ai の URL 更新だけで完結。Fitbit トークンに影響なし
-
-**脅威モデル**: SECRET が漏れて攻撃者が Anthropic CIDR 内からアクセスできる場合のみ、あなたの Fitbit データ閲覧・偽書き込みが可能。Fitbit アカウント自体の乗っ取りは不可(refresh_token は Worker 内にのみ存在)。
-
-複数ユーザー配布が必要なら `@cloudflare/workers-oauth-provider` で本格 OAuth AS 化する方針に切り替え可能(本リポはそれを選んでいない — 個人用最小構成)。
-
----
-
-## 既知の制約(Fitbit API 側の仕様、本実装で対処済みのもの)
-
-### 食事ログ周り
-- **Search Foods 障害(2025/11〜)**: Fitbit 公式 API の `/foods/search` が不安定。本実装は意図的に `foodName` + `calories` 直書きしか使わない
-- **`POST /foods/log.json` は `unitId` を必須化**(`unitName` は受け付けない)。本実装は foodName モードで `unitId: 304` (= serving) を自動付与
-- **栄養素キー名が非対称**(実測結果、2026-04):
-  - `protein` / `totalFat` / `totalCarbohydrate` / `dietaryFiber` / `sodium` / `sugars` — これらのキー名で送らないと Fitbit 側で無視される
-  - 旧 docs の `nutritionalValues.protein` 形式も、`proteinGrams` / `totalCarbs` 等も 2026-04 時点では効かない
-- **Create Food(カスタム食品)は calories のみ保存**:protein/carbs/fat を送っても silent drop される。本実装は `create_custom_food` を廃止し、栄養素を保持したい場合は **MCP サーバー側プリセット**(`save_meal_preset` + `log_preset`)で foodName 経路に流している
-- **sugar は `get_food_log` の echo に含まれない** — 保存されたかは視認できない
-
-### Intraday(心拍数)
-- **運動ログがある日は Fitbit が intraday の dataset を pruning**することがある(実測:運動日は朝〜夕方の dataset が欠落、運動無しの日は終日揃う)。zone summary は別パイプラインで残るので `get_heart_rate_range` はフォールバックに使える
-- **1sec 粒度**:運動記録中以外は 1 秒粒度が保証されない
-
-### その他
-- **Sleep は v1.2 のみ**(v1 は deprecated)
-- **Claude モバイルから Custom Connector の新規追加は不可**: 必ず claude.ai(Web)から追加
-- **レート制限**: 150 req/h/user。LLM が連続呼び出しする場合に備えて全 read に 1h キャッシュ。429 時は `Retry-After` を 30s までクランプして 1 回リトライ
+- **Every `int64` field is serialised as a string.** `{"count": "1250"}`, not `1250`.
+- **Filter literals differ by time field.** Civil (wall-clock) times take **no** `Z`; physical instants **require** one; daily types take a bare `YYYY-MM-DD`.
+- **Ranges are closed-open.** The API supports only `>=` and `<`, so an inclusive end date has to be advanced by a day.
+- **`sleep` filters on end time only** (`sleep.interval.civil_end_time`).
+- **Rollups return `rollupDataPoints`**, not `dataPoints`, and paginate by re-POSTing the body with a `pageToken`.
+- **`windowSizeDays` is documented as optional but is required** — omitting it returns HTTP 400.
+- **Rollup ranges are capped**: 14 days for heart rate, total calories, active minutes and calories-in-HR-zone; 90 days for everything else.
+- **List pages cap at 25 rows** for sleep and exercise, 10000 elsewhere.
+- **No intraday detail levels.** Google exposes raw samples (about one every 2–5 s); the heart-rate tools bucket them client-side.
+- **Skin temperature is absolute °C** plus a baseline; Fitbit reported only the deviation, so this server derives it.
+- **Nutrient enum is `SUGAR`, singular.** Fat and carbohydrate are top-level `totalFat` / `totalCarbohydrate` fields, not `nutrients[]` entries.
+- **Delete takes a resource name, not an id.** The numeric `logId` in these tools is a stable hash of that name, resolved by scanning the last 35 days.
+- **A DataPoint nests its values under a camelCase key** named for the data type, so a
+  `daily-resting-heart-rate` row arrives as `{dailyRestingHeartRate: {...}}`. Reading the
+  top level typechecks fine and yields `undefined` for every field.
+- **Rollup buckets are dated by `civilStartTime`,** not `date`.
+- **`activity-level` supports neither rollup verb** — the periods must be listed and
+  summed client-side.
+- **`active-zone-minutes` rollups carry flat `sumIn<Zone>HeartZone` keys,** not an array
+  of zone objects, and no zone bounds.
+- **Instant-valued types are filtered in true UTC,** so selecting a local day means
+  converting local midnight to UTC first — not using UTC midnight.
 
 ---
 
-## 開発ノート
+## Security
 
-- [`docs/research.md`](docs/research.md) — 設計前に行った調査(Fitbit API の現状、MCP / Claude モバイルの仕様、先行実装サーベイ、出典付き)
-- [`docs/journal.md`](docs/journal.md) — 開発ログ(決定理由、ハマり、使用感)
-- [`scripts/diagnose-food-log.ts`](scripts/diagnose-food-log.ts) — Fitbit の foodLog API の挙動(栄養素キー名など)を直接確認するための reproducer。API が再び形を変えた時にパターン追加して実行すれば原因特定できるよう in-tree 保持
+Single-user design, two layers:
+
+1. `MCP_SHARED_SECRET` must be presented on every request — as an `Authorization: Bearer` header or an `X-API-Key` header — or 401.
+2. `CF-Connecting-IP` must fall inside `ALLOWED_CIDRS`, or 403. Anthropic's published outbound range is `160.79.104.0/21`.
+
+`MCP_SHARED_SECRET` lives in Workers Secrets, never in code. Rotating it is `wrangler secret put` plus updating the connector; your Google tokens are unaffected.
+
+**Threat model:** if the secret leaks *and* the attacker can reach you from inside Anthropic's CIDR, they can read your health data (and write false entries, if you enabled write scopes). Note that every Claude user comes from that CIDR. They cannot take over the Google account — the refresh token stays in the Worker.
 
 ---
 
-## Contributing
+## Local development
 
-Issue / Pull Request 歓迎。設計判断は [`docs/journal.md`](docs/journal.md) を参照してください。
+```bash
+echo 'MCP_SHARED_SECRET=dev-secret' > .dev.vars
+pnpm dev
+
+pnpm lint
+pnpm typecheck
+pnpm test
+```
 
 ---
+
+## Development notes
+
+- [`docs/research.md`](docs/research.md) — original design research (Japanese), including the Fitbit-era API findings
+- [`docs/journal.md`](docs/journal.md) — development log (Japanese)
+- [`scripts/probe-google-health.ts`](scripts/probe-google-health.ts) — ground-truth probe against the live API
+- [`scripts/diagnose-food-log.ts`](scripts/diagnose-food-log.ts) — legacy Fitbit food-log reproducer
+
+## Hosted pages
+
+GitHub Pages serves the three URLs Google's OAuth consent screen requires:
+
+| Field on the consent screen | URL |
+|---|---|
+| Application home page | `https://<your-username>.github.io/google-health-mcp/` |
+| Privacy policy link | `https://<your-username>.github.io/google-health-mcp/privacy.html` |
+| Terms of service link | `https://<your-username>.github.io/google-health-mcp/terms.html` |
+
+If you fork this repo, enable GitHub Pages (branch `main`, folder `/docs`) and
+use your own `<user>.github.io` URLs. Add `<user>.github.io` under
+**Authorized domains** on the same screen. Sources are in
+[`docs/`](docs/).
+
+## Credits
+
+Derived from [tachibanayu24/fitbit-googlehealth-mcp](https://github.com/tachibanayu24/fitbit-googlehealth-mcp)
+(MIT), which implemented the original Fitbit Web API server. The Google Health API provider,
+the timezone handling and the OAuth bootstrap for Google are additions.
 
 ## License
 

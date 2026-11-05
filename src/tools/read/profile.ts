@@ -9,7 +9,7 @@ export function registerProfileTool(server: McpServer, provider: HealthProvider,
   server.registerTool(
     'get_profile',
     {
-      title: 'Fitbit user profile',
+      title: 'User profile',
       description:
         'Returns the authenticated user profile: display name, dates, unit system, timezone, and averages. Cached for 1 hour.',
       inputSchema: {},

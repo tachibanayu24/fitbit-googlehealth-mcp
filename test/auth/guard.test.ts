@@ -3,6 +3,7 @@ import {
   ipv4ToInt,
   isIpv4InCidr,
   parseCidrList,
+  secretFromHeaders,
   timingSafeEqual,
   verifyAccess,
 } from '../../src/auth/guard';
@@ -90,7 +91,7 @@ describe('verifyAccess', () => {
   it('accepts a request with matching secret and allowed IP', () => {
     expect(
       verifyAccess({
-        secretFromPath: secret,
+        providedSecret: secret,
         expectedSecret: secret,
         clientIp: '160.79.105.42',
         allowedCidrs: anthropicCidr,
@@ -101,7 +102,7 @@ describe('verifyAccess', () => {
   it('rejects when expectedSecret is not configured', () => {
     expect(
       verifyAccess({
-        secretFromPath: secret,
+        providedSecret: secret,
         expectedSecret: undefined,
         clientIp: '160.79.105.42',
         allowedCidrs: anthropicCidr,
@@ -109,10 +110,10 @@ describe('verifyAccess', () => {
     ).toEqual({ ok: false, status: 401, reason: 'missing_secret' });
   });
 
-  it('rejects when secretFromPath is missing', () => {
+  it('rejects when providedSecret is missing', () => {
     expect(
       verifyAccess({
-        secretFromPath: undefined,
+        providedSecret: undefined,
         expectedSecret: secret,
         clientIp: '160.79.105.42',
         allowedCidrs: anthropicCidr,
@@ -123,7 +124,7 @@ describe('verifyAccess', () => {
   it('rejects on secret mismatch (constant time)', () => {
     expect(
       verifyAccess({
-        secretFromPath: 'wrong',
+        providedSecret: 'wrong',
         expectedSecret: secret,
         clientIp: '160.79.105.42',
         allowedCidrs: anthropicCidr,
@@ -134,7 +135,7 @@ describe('verifyAccess', () => {
   it('rejects when CF-Connecting-IP is missing even with correct secret', () => {
     expect(
       verifyAccess({
-        secretFromPath: secret,
+        providedSecret: secret,
         expectedSecret: secret,
         clientIp: undefined,
         allowedCidrs: anthropicCidr,
@@ -145,7 +146,7 @@ describe('verifyAccess', () => {
   it('rejects when ALLOWED_CIDRS is empty/unset', () => {
     expect(
       verifyAccess({
-        secretFromPath: secret,
+        providedSecret: secret,
         expectedSecret: secret,
         clientIp: '160.79.105.42',
         allowedCidrs: '',
@@ -156,7 +157,7 @@ describe('verifyAccess', () => {
   it('rejects IP outside the allowed CIDR', () => {
     expect(
       verifyAccess({
-        secretFromPath: secret,
+        providedSecret: secret,
         expectedSecret: secret,
         clientIp: '1.2.3.4',
         allowedCidrs: anthropicCidr,
@@ -167,11 +168,25 @@ describe('verifyAccess', () => {
   it('accepts IP matching any of the configured CIDRs', () => {
     expect(
       verifyAccess({
-        secretFromPath: secret,
+        providedSecret: secret,
         expectedSecret: secret,
         clientIp: '10.20.30.40',
         allowedCidrs: `${anthropicCidr}, 10.0.0.0/8`,
       }),
     ).toEqual({ ok: true });
+  });
+});
+
+describe('secretFromHeaders', () => {
+  const from = (headers: Record<string, string>) => (name: string) => headers[name];
+
+  it('reads a bearer token or X-API-Key', () => {
+    expect(secretFromHeaders(from({ authorization: 'Bearer abc' }))).toBe('abc');
+    expect(secretFromHeaders(from({ 'x-api-key': 'def' }))).toBe('def');
+    expect(secretFromHeaders(from({ 'x-crysto-key': 'ghi' }))).toBeUndefined();
+  });
+
+  it('ignores non-bearer authorization schemes', () => {
+    expect(secretFromHeaders(from({ authorization: 'Basic abc' }))).toBeUndefined();
   });
 });

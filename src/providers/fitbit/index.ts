@@ -6,6 +6,7 @@ import type {
   CardioFitness,
   DailySummary,
   Device,
+  ExerciseListOptions,
   ExerciseLog,
   FoodLog,
   FoodLogEntry,
@@ -84,8 +85,12 @@ export class FitbitProvider implements HealthProvider {
   ): Promise<TimeSeries> {
     return getActivityTimeSeries(this.client, resource, start, end);
   }
-  getExerciseList(opts: { beforeDate?: string; limit?: number }): Promise<ExerciseLog[]> {
-    return getExerciseList(this.client, opts);
+  getExerciseList(opts: ExerciseListOptions): Promise<ExerciseLog[]> {
+    return getExerciseList(this.client, {
+      beforeDate: opts.to ?? opts.beforeDate,
+      // The tool filters short records after this call, so ask for the maximum.
+      limit: opts.limit ?? 100,
+    });
   }
 
   // ---------- Read: heart rate ----------

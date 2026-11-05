@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Env } from '../env';
 import type { HealthProvider } from '../providers/types';
+import { registerInsightsTools } from './insights';
 import { registerActivityReadTools } from './read/activity';
 import { registerBodyReadTools } from './read/body';
 import { registerDevicesTool } from './read/devices';
@@ -14,6 +15,7 @@ import { registerBodyWriteTools } from './write/body';
 import { registerFoodWriteTools } from './write/food';
 import { registerPresetTools } from './write/preset';
 import { registerSleepWriteTool } from './write/sleep';
+import { registerWorkoutWriteTools } from './write/workout';
 
 export function registerAllTools(server: McpServer, provider: HealthProvider, env: Env): void {
   // ---- Read ----
@@ -25,6 +27,15 @@ export function registerAllTools(server: McpServer, provider: HealthProvider, en
   registerBodyReadTools(server, provider, env);
   registerNutritionReadTools(server, provider, env);
   registerMetricsReadTools(server, provider, env);
+  if (env.HEALTH_PROVIDER !== 'fitbit') registerInsightsTools(server, env);
+
+  // Write, delete and preset tools are off by default. They also need the
+  // write scopes from `pnpm run setup:google -- --write`.
+  // "activity" serves only the workout tools, which need just the activity write scope.
+  if (env.ENABLE_WRITE_TOOLS === 'true' || env.ENABLE_WRITE_TOOLS === 'activity') {
+    registerWorkoutWriteTools(server, provider, env);
+  }
+  if (env.ENABLE_WRITE_TOOLS !== 'true') return;
 
   // ---- Write / delete ----
   registerFoodWriteTools(server, provider, env);

@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Env } from '../../env';
 import { cacheKey, getCached } from '../../lib/cache';
-import { assertIsoDate, normalizeRange, todayJst } from '../../lib/date';
+import { assertIsoDate, cacheTtlForDate, normalizeRange, today } from '../../lib/date';
 import { toolErrorResult } from '../../lib/errors';
 import type { HealthProvider } from '../../providers/types';
 import { SleepLogSchema } from '../../providers/types';
@@ -17,18 +17,21 @@ export function registerSleepReadTools(
     {
       title: 'Sleep logs for one day',
       description:
-        'Fitbit sleep logs (v1.2) for a date, including stage data (deep/light/rem/wake) when the device captured them. Defaults to today (JST). Cached 1h.',
+        'Sleep sessions for a date, including stage data (deep/light/rem/wake) when the device captured them. A night is attributed to the day it ENDS on. Defaults to today. Cached 1h.',
       inputSchema: {
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
       },
       outputSchema: { sleep: z.array(SleepLogSchema) },
     },
     async ({ date }) => {
       try {
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
-        const sleep = await getCached(env, cacheKey('get_sleep', { date: d }), () =>
-          provider.getSleep(d),
+        const sleep = await getCached(
+          env,
+          cacheKey('get_sleep', { date: d }),
+          () => provider.getSleep(d),
+          { ttlSec: cacheTtlForDate(d) },
         );
         return {
           structuredContent: { sleep },
@@ -45,7 +48,7 @@ export function registerSleepReadTools(
     {
       title: 'Sleep logs across a date range',
       description:
-        'Fitbit sleep logs (v1.2) across a date range. Good for week-over-week comparisons. Cached 1h.',
+        'Sleep sessions across a date range, attributed to the day each night ends on. Good for week-over-week comparisons. Cached 1h.',
       inputSchema: {
         start: z.string().describe('YYYY-MM-DD'),
         end: z.string().describe('YYYY-MM-DD'),
@@ -55,8 +58,11 @@ export function registerSleepReadTools(
     async ({ start, end }) => {
       try {
         const range = normalizeRange(start, end);
-        const sleep = await getCached(env, cacheKey('get_sleep_range', range), () =>
-          provider.getSleepRange(range.start, range.end),
+        const sleep = await getCached(
+          env,
+          cacheKey('get_sleep_range', range),
+          () => provider.getSleepRange(range.start, range.end),
+          { ttlSec: cacheTtlForDate(range.end) },
         );
         return {
           structuredContent: { sleep },

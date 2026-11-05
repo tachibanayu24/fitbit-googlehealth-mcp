@@ -10,9 +10,9 @@ export function registerDevicesTool(server: McpServer, provider: HealthProvider,
   server.registerTool(
     'list_devices',
     {
-      title: 'Fitbit devices',
+      title: 'Paired devices',
       description:
-        'Lists Fitbit devices tied to the user (battery level, last sync time, model). Cached for 1 hour.',
+        'Lists devices paired to the account (battery level, last sync time, model). Cached for 1 hour.',
       inputSchema: {},
       outputSchema: { devices: z.array(DeviceSchema) },
     },
