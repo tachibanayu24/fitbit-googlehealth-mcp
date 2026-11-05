@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Env } from '../../env';
 import { cacheKey, invalidate } from '../../lib/cache';
-import { assertIsoDate, todayJst } from '../../lib/date';
+import { assertIsoDate, today } from '../../lib/date';
 import { toolErrorResult } from '../../lib/errors';
 import {
   deletePreset,
@@ -14,6 +14,7 @@ import {
 } from '../../lib/presets';
 import type { HealthProvider } from '../../providers/types';
 import { FoodLogEntrySchema, MealType } from '../../providers/types';
+import { DAILY_SUMMARY_CACHE } from '../read/activity';
 
 const MealPresetSchema = z.object({
   name: z.string(),
@@ -33,7 +34,7 @@ async function invalidateFoodCaches(env: Env, date: string): Promise<void> {
   await invalidate(
     env,
     cacheKey('get_food_log', { date }),
-    cacheKey('get_daily_summary', { date }),
+    cacheKey(DAILY_SUMMARY_CACHE, { date }),
   );
 }
 
@@ -165,7 +166,7 @@ export function registerPresetTools(server: McpServer, provider: HealthProvider,
       inputSchema: {
         name: z.string().describe('Preset name saved via save_meal_preset.'),
         mealType: MealType,
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
         amount: z
           .number()
           .positive()
@@ -182,7 +183,7 @@ export function registerPresetTools(server: McpServer, provider: HealthProvider,
             `Meal preset "${name}" not found. Use list_meal_presets to see what's saved.`,
           );
         }
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
         const multiplier = amount ?? 1;
         const scaled = scalePresetNutrition(preset, multiplier);

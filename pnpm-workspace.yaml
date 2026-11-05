@@ -1,0 +1,16 @@
+# Install scripts that pnpm may run. esbuild bundles the Worker and workerd is
+# the local Workers runtime; sharp (image processing via wrangler) is unused.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: false
+minimumReleaseAgeExclude:
+  - miniflare@5.20261023.2-beta
+  - wrangler@4.155.0
+overrides:
+  '@hono/node-server@>=1.19.10 <2.1.3': ^2.1.3
+  body-parser@>=2.0.0 <2.4.0: ^2.4.0
+  fast-uri@>=3.0.0 <3.1.9: ^3.1.9
+  ip-address@<=10.7.3: ^10.7.4
+  proxy-addr@>=1.1.0 <2.0.8: ^2.0.8
+  qs@>=6.7.0 <=6.16.0: ^6.16.1

@@ -3,13 +3,38 @@ main = "src/index.ts"
 compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Serve on the workers.dev hostname, but not on per-version preview URLs.
+# Preview URLs would expose this health endpoint on additional public
+# hostnames for no benefit on a single-user deployment.
+workers_dev = true
+preview_urls = false
+
 [vars]
 # Anthropic's published outbound CIDR for Claude → MCP server connections.
 ALLOWED_CIDRS = "160.79.104.0/21"
 
+# Which backend to serve: "google" (default) or "fitbit".
+# The legacy Fitbit Web API is being decommissioned in September 2026; leave
+# this on "google" unless you are deliberately testing the old path.
+HEALTH_PROVIDER = "google"
+
+# IANA timezone used to resolve "today" for tools with an optional `date`.
+# Set this to where you actually live, or every "log this for today" call can
+# land on the wrong day. Defaults to UTC when unset.
+TIMEZONE = "Europe/London"
+
+# "true" exposes the write, delete and meal-preset tools. Keep "false" unless
+# you also ran `pnpm run setup:google -- --write` to grant write scopes.
+ENABLE_WRITE_TOOLS = "false"
+
+# Optional insights settings:
+#   BIRTH_DATE = "YYYY-MM-DD"       # sets real/body age output; unset skips it
+#   SLEEP_WAKE_TIME = "07:00"       # default wake-up alarm "HH:MM" for the sleep plan
+#   DATA_START = "YYYY-MM-DD"       # first day of data, so early history is not stretched
+
 # Create both KV namespaces before `wrangler deploy`:
-#   wrangler kv:namespace create TOKENS
-#   wrangler kv:namespace create CACHE
+#   wrangler kv namespace create TOKENS
+#   wrangler kv namespace create CACHE
 # Then paste the returned ids below.
 
 [[kv_namespaces]]
@@ -21,6 +46,10 @@ binding = "CACHE"
 id = "<your-cache-namespace-id>"
 
 # Set the following secrets:
+#   wrangler secret put GOOGLE_CLIENT_ID
+#   wrangler secret put GOOGLE_CLIENT_SECRET
+#   wrangler secret put MCP_SHARED_SECRET   # `openssl rand -hex 32`
+#
+# Only if HEALTH_PROVIDER = "fitbit":
 #   wrangler secret put FITBIT_CLIENT_ID
 #   wrangler secret put FITBIT_CLIENT_SECRET
-#   wrangler secret put MCP_SHARED_SECRET   # `openssl rand -base64 32`

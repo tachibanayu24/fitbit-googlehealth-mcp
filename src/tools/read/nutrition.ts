@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Env } from '../../env';
 import { cacheKey, getCached } from '../../lib/cache';
-import { assertIsoDate, todayJst } from '../../lib/date';
+import { assertIsoDate, cacheTtlForDate, today } from '../../lib/date';
 import { toolErrorResult } from '../../lib/errors';
 import type { HealthProvider } from '../../providers/types';
 import { FoodLogSchema } from '../../providers/types';
@@ -17,18 +17,21 @@ export function registerNutritionReadTools(
     {
       title: 'Food log for one day',
       description:
-        'Meals and water intake for the day: foods array, nutrition summary (calories/carbs/fat/fiber/protein/sodium/sugar), water total, and—when Fitbit has set one—a calorie goal. The `goals` field is omitted on days with no food entries. Defaults to today (JST). Cached 1h.',
+        'Meals and water intake for the day: foods array, nutrition summary (calories/carbs/fat/fiber/protein/sodium/sugar) and water total. The summary is computed from the logged entries. Defaults to today. Cached 1h.',
       inputSchema: {
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
       },
       outputSchema: FoodLogSchema.shape,
     },
     async ({ date }) => {
       try {
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
-        const food = await getCached(env, cacheKey('get_food_log', { date: d }), () =>
-          provider.getFoodLog(d),
+        const food = await getCached(
+          env,
+          cacheKey('get_food_log', { date: d }),
+          () => provider.getFoodLog(d),
+          { ttlSec: cacheTtlForDate(d) },
         );
         return {
           structuredContent: food,

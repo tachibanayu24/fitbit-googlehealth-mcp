@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from 'hono';
 import type { Env } from '../env';
 
 export type GuardInput = {
-  secretFromPath: string | undefined;
+  providedSecret: string | undefined;
   expectedSecret: string | undefined;
   clientIp: string | undefined;
   allowedCidrs: string | undefined;
@@ -18,10 +18,10 @@ export type GuardDenyReason =
   | 'ip_not_allowed';
 
 export function verifyAccess(input: GuardInput): GuardResult {
-  if (!input.expectedSecret || !input.secretFromPath) {
+  if (!input.expectedSecret || !input.providedSecret) {
     return { ok: false, status: 401, reason: 'missing_secret' };
   }
-  if (!timingSafeEqual(input.secretFromPath, input.expectedSecret)) {
+  if (!timingSafeEqual(input.providedSecret, input.expectedSecret)) {
     return { ok: false, status: 401, reason: 'secret_mismatch' };
   }
 
@@ -87,16 +87,38 @@ export function isIpv4InCidr(ip: string, cidr: string): boolean {
   return (ipInt & mask) === (rangeInt & mask);
 }
 
-export const guardMiddleware = (): MiddlewareHandler<{ Bindings: Env }> => {
+export function secretFromHeaders(
+  header: (name: string) => string | undefined,
+): string | undefined {
+  const bearer = header('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return bearer ?? header('x-api-key');
+}
+
+type GuardEnv = Pick<Env, 'MCP_SHARED_SECRET' | 'ALLOWED_CIDRS'>;
+
+export const guardMiddleware = <B extends GuardEnv = Env>(): MiddlewareHandler<{ Bindings: B }> => {
   return async (c, next) => {
     const result = verifyAccess({
-      secretFromPath: c.req.param('secret'),
+      providedSecret: secretFromHeaders((name) => c.req.header(name)),
       expectedSecret: c.env.MCP_SHARED_SECRET,
       clientIp: c.req.header('CF-Connecting-IP') ?? undefined,
       allowedCidrs: c.env.ALLOWED_CIDRS,
     });
     if (!result.ok) {
       return c.text(result.reason, result.status);
+    }
+    await next();
+  };
+};
+
+export const gatewayGuard = <
+  B extends Pick<Env, 'GATEWAY_SHARED_SECRET'> = Env,
+>(): MiddlewareHandler<{ Bindings: B }> => {
+  return async (c, next) => {
+    const expected = c.env.GATEWAY_SHARED_SECRET;
+    const provided = c.req.header('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!expected || !provided || !timingSafeEqual(provided, expected)) {
+      return c.text('unauthorised', 401);
     }
     await next();
   };

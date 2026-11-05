@@ -1,7 +1,7 @@
 {
   "name": "fitbit-googlehealth-mcp",
-  "version": "0.1.0",
-  "description": "MCP server for Fitbit (and the upcoming Google Health API migration): comprehensive health-data access and photo-driven food logging for Claude mobile.",
+  "version": "0.2.0",
+  "description": "MCP server for Google Health (health.googleapis.com/v4), the successor to the Fitbit Web API: comprehensive health-data access and photo-driven food logging for Claude.",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -14,24 +14,28 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "setup:google": "tsx scripts/setup-google.ts",
+    "probe:google": "tsx scripts/probe-google-health.ts",
+    "verify:provider": "tsx scripts/verify-provider.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^22.12.0 || >=24.0.0"
   },
   "dependencies": {
-    "@hono/mcp": "^0.2",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "hono": "^4.7.0",
-    "zod": "^3.25.0"
+    "@hono/mcp": "^0.2.5",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "hono": "^4.13.14",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "^2",
     "@cloudflare/workers-types": "^4.20260421.1",
     "@types/node": "^22",
-    "tsx": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5.7",
-    "vitest": "^2",
-    "wrangler": "^4"
+    "vite": "8.3.5",
+    "vitest": "5.0.5",
+    "wrangler": "4.155.0"
   }
 }

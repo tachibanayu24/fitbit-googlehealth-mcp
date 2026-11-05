@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Env } from '../../env';
 import { cacheKey, invalidate } from '../../lib/cache';
-import { assertIsoDate, todayJst } from '../../lib/date';
+import { assertIsoDate, today } from '../../lib/date';
 import { toolErrorResult } from '../../lib/errors';
 import type { HealthProvider } from '../../providers/types';
 import {
@@ -11,12 +11,13 @@ import {
   NutritionalValuesSchema,
   WaterLogEntrySchema,
 } from '../../providers/types';
+import { DAILY_SUMMARY_CACHE } from '../read/activity';
 
 async function invalidateFoodCaches(env: Env, date: string): Promise<void> {
   await invalidate(
     env,
     cacheKey('get_food_log', { date }),
-    cacheKey('get_daily_summary', { date }),
+    cacheKey(DAILY_SUMMARY_CACHE, { date }),
   );
 }
 
@@ -41,7 +42,7 @@ export function registerFoodWriteTools(
         'transcribing macro numbers repeatedly.',
       ].join('\n'),
       inputSchema: {
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
         mealType: MealType,
         foodName: z.string().describe('Free-text food name, e.g. "おにぎり".'),
         calories: z.number().int().min(0).describe('kcal for the logged portion.'),
@@ -53,7 +54,7 @@ export function registerFoodWriteTools(
     },
     async (input) => {
       try {
-        const date = input.date ?? todayJst();
+        const date = input.date ?? today();
         assertIsoDate(date, 'date');
         const entry = await provider.logFood({ ...input, date });
         await invalidateFoodCaches(env, date);
@@ -91,7 +92,7 @@ export function registerFoodWriteTools(
         'disagree with an item.',
       ].join('\n'),
       inputSchema: {
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
         mealType: MealType,
         items: z
           .array(
@@ -117,7 +118,7 @@ export function registerFoodWriteTools(
     },
     async ({ date, mealType, items, notes }) => {
       try {
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
         const entries = await provider.logMeal({ date: d, mealType, items, notes });
         await invalidateFoodCaches(env, d);
@@ -143,14 +144,14 @@ export function registerFoodWriteTools(
       title: 'Log water intake (ml)',
       description: 'Record water consumption in millilitres for the given date.',
       inputSchema: {
-        date: z.string().describe('YYYY-MM-DD. Omit for today (JST).').optional(),
+        date: z.string().describe('YYYY-MM-DD. Omit for today (server timezone).').optional(),
         amountMl: z.number().positive().describe('Millilitres.'),
       },
       outputSchema: WaterLogEntrySchema.shape,
     },
     async ({ date, amountMl }) => {
       try {
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
         const entry = await provider.logWater({ date: d, amountMl });
         await invalidateFoodCaches(env, d);
@@ -168,7 +169,7 @@ export function registerFoodWriteTools(
   server.registerTool(
     'delete_food_log',
     {
-      title: 'Delete a Fitbit food-log entry',
+      title: 'Delete a food-log entry',
       description:
         'Remove a previously logged food entry by its logId (from log_food or log_meal_photo output). Use this to undo a mistake.',
       inputSchema: {
@@ -179,7 +180,7 @@ export function registerFoodWriteTools(
         date: z
           .string()
           .describe(
-            'YYYY-MM-DD the entry was logged under. Used to invalidate caches; if unknown, today (JST) is used and the cache may lag briefly.',
+            'YYYY-MM-DD the entry was logged under. Used to invalidate caches; if unknown, today is used and the cache may lag briefly.',
           )
           .optional(),
       },
@@ -188,7 +189,7 @@ export function registerFoodWriteTools(
     async ({ logId, date }) => {
       try {
         await provider.deleteFoodLog(logId);
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
         await invalidateFoodCaches(env, d);
         return {
@@ -219,7 +220,7 @@ export function registerFoodWriteTools(
     async ({ logId, date }) => {
       try {
         await provider.deleteWaterLog(logId);
-        const d = date ?? todayJst();
+        const d = date ?? today();
         assertIsoDate(d, 'date');
         await invalidateFoodCaches(env, d);
         return {
